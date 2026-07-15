@@ -185,7 +185,7 @@ def build_home(books):
         cards = []
         for b in books:
             syn = b["syn_parsed"]
-            cover_url = page_url("books", b["slug"], "cover.png")
+            cover_url = page_url("books", b["slug"], f"{b['slug']}-cover.png")
             book_url = page_url("books", b["slug"], "index.html")
             pdf_url = (page_url("books", b["slug"], b["pdf_name"])
                        if b["pdf"] else None)
@@ -222,7 +222,7 @@ def build_home(books):
 
 def build_book(b):
     syn = b["syn_parsed"]
-    cover_url = page_url("books", b["slug"], "cover.png")
+    cover_url = page_url("books", b["slug"], f"{b['slug']}-cover.png")
     read_url = page_url("books", b["slug"], "read.html")
     pdf_url = (page_url("books", b["slug"], b["pdf_name"])
                if b["pdf"] else None)
@@ -293,14 +293,15 @@ def main():
     parsed = []
     for b in books:
         syn = parse_synopsis(b["syn"])
-        pdf_name = b["pdf"].name if b["pdf"] else None
+        # Deterministic, slug-based asset names so links always match files.
+        pdf_name = f"{b['slug']}.pdf" if b["pdf"] else None
         parsed.append(dict(b, syn_parsed=syn, pdf_name=pdf_name))
     parsed.sort(key=lambda x: x["syn_parsed"]["title"].lower())
     (OUT / "index.html").write_text(build_home(parsed), encoding="utf-8")
     for b in parsed:
         dest = OUT / "books" / b["slug"]
         dest.mkdir(parents=True, exist_ok=True)
-        shutil.copy(b["cover"], dest / "cover.png")
+        shutil.copy(b["cover"], dest / f"{b['slug']}-cover.png")
         if b["pdf"]:
             shutil.copy(b["pdf"], dest / b["pdf_name"])
         (dest / "index.html").write_text(build_book(b), encoding="utf-8")
