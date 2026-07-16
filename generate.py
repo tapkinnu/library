@@ -19,7 +19,9 @@ Requires:  pip install markdown   (already present in the writer agent venv)
 """
 from __future__ import annotations
 
+import hashlib
 import html
+import json
 import os
 import re
 import shutil
@@ -32,6 +34,78 @@ try:
 except ImportError:
     sys.exit("ERROR: the 'markdown' package is required. Install with: pip install markdown")
 
+
+# --- canonical-manuscript / synopsis reconciliation -----------------------
+# A book's canonical manuscript is manuscript/<slug>.md. Anything under an
+# 'archive/' directory is a historical draft and must NEVER be published or
+# counted. When a book is edited, its synopsis (especially the Length line)
+# is auto-reconciled so the site never shows a stale word count.
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def word_count_md(path: Path) -> int:
+    """True word count via wc -w on the canonical manuscript (mirrors the
+    numbers reported to the reader; ignores markdown markup)."""
+    import subprocess
+    try:
+        out = subprocess.run(["wc", "-w", str(path)],
+                             capture_output=True, text=True, check=True)
+        return int(out.stdout.split()[0])
+    except Exception:
+        # fall back to a python count if wc is unavailable
+        txt = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+        return len(txt.split())
+
+
+def reconcile_synopsis(syn_path: Path, wc: int) -> bool:
+    """Rewrite the **Length:** line in synopsis.md to match the canonical
+    manuscript's real word count. Returns True if the file was changed.
+
+    Preserves every other line and the line's original prefix (bullet,
+    indentation, or none). Idempotent: re-running on an already-correct
+    synopsis is a no-op. Handles '~N words', 'N words', '~N,NNN words', etc.
+    """
+    raw = syn_path.read_text(encoding="utf-8")
+    lines = raw.splitlines()
+    new_lines = []
+    changed = False
+    # Match any line that contains a **Length:** marker, with any leading
+    # bullet/whitespace prefix. Capture the prefix so we keep it.
+    pat = re.compile(r"^(?P<pre>[\s\*\-\>]*)\*\*(?i:Length):\*\*\s*.+")
+    new_val = f"**Length:** {wc:,} words"
+    for ln in lines:
+        m = pat.match(ln)
+        if m:
+            new_ln = f"{m.group('pre')}{new_val}"
+            if ln != new_ln:
+                changed = True
+            new_lines.append(new_ln)
+        else:
+            new_lines.append(ln)
+    if changed:
+        syn_path.write_text("\n".join(new_lines).rstrip() + "\n",
+                            encoding="utf-8")
+    return changed
+
+
+def load_state() -> dict:
+    if GENSTATE.exists():
+        try:
+            return json.loads(GENSTATE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_state(state: dict) -> None:
+    GENSTATE.write_text(json.dumps(state, indent=2, sort_keys=True),
+                        encoding="utf-8")
+
 # --- configuration ---------------------------------------------------------
 # GitHub repo name. The Pages site is served at https://<user>.github.io/<REPO>/
 # so every asset/link is rooted at /<REPO>/. If you rename the repo, change REPO.
@@ -39,6 +113,7 @@ REPO = "library"
 BASE = f"/{REPO}"
 
 ROOT = Path(__file__).resolve().parent
+GENSTATE = ROOT / ".genstate.json"
 BOOKS_ROOT = Path(os.environ.get("BOOKS_DIR", Path.home() / "Books")).expanduser()
 OUT = ROOT / "docs"
 SRC = ROOT / "src"
@@ -77,17 +152,22 @@ def discover_books():
         syn = syn if syn.exists() else None
         mds = (list(d.glob(f"manuscript/{slug}.md"))
                or [p for p in d.glob("manuscript/*.md")
-                   if not p.name.startswith("~")])
+                   if not p.name.startswith("~")
+                   and "archive" not in p.parts])
         mdfile = mds[0] if mds else None
         pdfs = (list(d.glob(f"manuscript/{slug}.pdf"))
-                or list(d.glob("manuscript/*.pdf")))
+                or [p for p in d.glob("manuscript/*.pdf")
+                    if "archive" not in p.parts])
         pdf = pdfs[0] if pdfs else None
         if not (cover and syn and mdfile):
             print(f"[skip] {slug}: cover={bool(cover)} synopsis={bool(syn)} "
                   f"manuscript={bool(mdfile)}")
             continue
+        digest = _sha256(mdfile)
+        wc = word_count_md(mdfile)
         books.append({"slug": slug, "cover": cover, "syn": syn,
-                      "md": mdfile, "pdf": pdf})
+                      "md": mdfile, "pdf": pdf,
+                      "md_hash": digest, "wc": wc})
     return books
 
 
@@ -290,6 +370,30 @@ def main():
             shutil.copy(srcf, OUT / "assets" / f)
     (OUT / ".nojekyll").write_text("")
     books = discover_books()
+
+    # --- synopsis auto-reconciliation + edit detection --------------------
+    # Whenever a book's canonical manuscript changes (hash differs from the
+    # last generation), we recompute its true word count and rewrite the
+    # **Length:** line in cover/synopsis.md so the published site can never
+    # show a stale count. This runs on EVERY generate, so editing a book and
+    # re-running is enough to keep the synopsis honest.
+    state = load_state()
+    for b in books:
+        slug = b["slug"]
+        prev = state.get(slug, {})
+        edited = prev.get("md_hash") != b["md_hash"]
+        if edited:
+            if prev:
+                print(f"[edit] {slug}: manuscript changed since last build "
+                      f"(was {prev.get('wc')} words, now {b['wc']})")
+            else:
+                print(f"[new]  {slug}: first build ({b['wc']} words)")
+        changed = reconcile_synopsis(b["syn"], b["wc"])
+        if changed:
+            print(f"[sync] {slug}: synopsis Length updated -> {b['wc']:,} words")
+        state[slug] = {"md_hash": b["md_hash"], "wc": b["wc"]}
+    save_state(state)
+
     parsed = []
     for b in books:
         syn = parse_synopsis(b["syn"])
