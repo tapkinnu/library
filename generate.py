@@ -202,6 +202,108 @@ def discover_books():
     return books
 
 
+# --- PDF auto-build --------------------------------------------------------
+# The site always exposes a "Download PDF" link when manuscript/<slug>.pdf
+# exists. To guarantee every published book has a PDF (never ship without
+# one), generate.py builds the PDF itself if it is missing, using the book's
+# own build_pdf.py when present, else a built-in fpdf2 fallback. fpdf2 must be
+# importable by the interpreter that runs build_pdf.py; we prefer the Books
+# venv (which has fpdf2), falling back to system python3.
+_BOOKS_VENV = BOOKS_ROOT / "_venv" / "bin" / "python"
+
+
+def _pdf_builder_interpreter() -> str:
+    if _BOOKS_VENV.exists():
+        return str(_BOOKS_VENV)
+    return sys.executable
+
+
+def ensure_pdf(b: dict) -> None:
+    """Build manuscript/<slug>.pdf if it is missing. Idempotent."""
+    if b["pdf"] is not None:
+        return
+    slug = b["slug"]
+    book_dir = b["md"].parent.parent
+    target = book_dir / "manuscript" / f"{slug}.pdf"
+    builder = book_dir / "build_pdf.py"
+    interp = _pdf_builder_interpreter()
+    try:
+        if builder.exists():
+            subprocess.run([interp, str(builder)], check=True,
+                           cwd=str(book_dir),
+                           capture_output=True, text=True)
+        else:
+            # built-in fallback: a minimal fpdf2 typesetter
+            _build_pdf_fallback(b["md"], target)
+        if target.exists():
+            b["pdf"] = target
+            print(f"[pdf]  {slug}: built {target.name}")
+        else:
+            print(f"[warn] {slug}: PDF build produced no file; skipping PDF link")
+    except Exception as e:
+        print(f"[warn] {slug}: PDF build failed ({e}); skipping PDF link")
+
+
+def _build_pdf_fallback(md_path: Path, out_path: Path) -> None:
+    """Minimal PDF builder used only if a book has no build_pdf.py.
+
+    Requires fpdf2 in the running interpreter; if unavailable, raises so the
+    caller can skip the PDF gracefully.
+    """
+    from fpdf import FPDF  # may ImportError -> caller skips PDF
+    import re as _re
+    FONT = "/usr/share/fonts/truetype/dejavu"
+    text = md_path.read_text(encoding="utf-8")
+    lines = text.split("\n")
+
+    class _P(FPDF):
+        def footer(self):
+            self.set_y(-14)
+            self.set_font("DJ", "", 8)
+            self.set_text_color(150, 150, 150)
+            self.cell(0, 8, md_path.parent.parent.name, align="L")
+            self.cell(0, 8, f"Page {self.page_no()}", align="R")
+
+    pdf = _P(format="LETTER")
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_margins(25.4, 22, 25.4)
+    pdf.add_font("DJ", "", f"{FONT}/DejaVuSans.ttf")
+    pdf.add_font("DJ", "B", f"{FONT}/DejaVuSans-Bold.ttf")
+    pdf.add_page()
+    first = True
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            pdf.ln(2)
+            continue
+        if line.startswith("# "):
+            pdf.set_font("DJ", "B", 26 if first else 12.5)
+            pdf.set_text_color(27, 42, 74)
+            pdf.multi_cell(0, 12 if first else 7, _re.sub(r"[*]", "", line[2:]),
+                           align="C")
+            pdf.ln(2)
+            first = False
+            continue
+        if line.startswith("## "):
+            pdf.set_font("DJ", "B", 15)
+            pdf.set_text_color(27, 42, 74)
+            pdf.ln(4)
+            pdf.multi_cell(0, 8, _re.sub(r"[*]", "", line[3:]), align="C")
+            pdf.ln(2)
+            continue
+        if line == "---":
+            pdf.ln(2)
+            continue
+        pdf.set_font("DJ", "", 11)
+        pdf.set_text_color(0, 0, 0)
+        pdf.multi_cell(0, 5.4, "    " + _re.sub(r"[*]", "", line), align="J")
+        pdf.ln(1.5)
+    pdf.output(str(out_path))
+
+
+
+
+
 def parse_synopsis(path: Path):
     raw = path.read_text(encoding="utf-8")
     lines = raw.splitlines()
@@ -401,6 +503,13 @@ def main():
             shutil.copy(srcf, OUT / "assets" / f)
     (OUT / ".nojekyll").write_text("")
     books = discover_books()
+
+    # --- guarantee every book ships with a PDF ---------------------------
+    # If a book has no manuscript/<slug>.pdf yet, build it now (via the book's
+    # own build_pdf.py, or the built-in fallback). This enforces the rule that
+    # the published library always exposes a "Download PDF" link per book.
+    for b in books:
+        ensure_pdf(b)
 
     # --- synopsis auto-reconciliation + edit detection --------------------
     # Whenever a book's canonical manuscript changes (hash differs from the
