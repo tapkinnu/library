@@ -15,8 +15,11 @@ Usage:
     python3 generate.py                         # uses ~/Books
     BOOKS_DIR=/path/to/Books python3 generate.py
 
-Requires:  pip install markdown   (already present in the writer agent venv)
+The `markdown` package is auto-installed into a local .venv_publish venv on
+first run if it is not already importable, so this script works under any
+python3 (including the cron's interpreter) with no manual setup.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -25,14 +28,42 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import markdown
-except ImportError:
-    sys.exit("ERROR: the 'markdown' package is required. Install with: pip install markdown")
+
+def _ensure_markdown():
+    """Import markdown, auto-bootstrapping a local venv if needed.
+
+    The cron runner uses Hermes' own python3, which does not have markdown.
+    Rather than depend on a manually-created venv, we create/use .venv_publish
+    next to this script and `uv pip install markdown` into it. This makes
+    `python3 generate.py` work unattended in every context.
+    """
+    try:
+        import markdown  # noqa: F401
+        return
+    except ImportError:
+        pass
+    here = Path(__file__).resolve().parent
+    venv = here / ".venv_publish"
+    vpy = venv / "bin" / "python"
+    if not venv.exists():
+        subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
+    # prefer uv if available (fast), else venv pip
+    if shutil.which("uv"):
+        subprocess.run(["uv", "pip", "install", "--python", str(vpy), "markdown"],
+                       check=True)
+    else:
+        subprocess.run([str(vpy), "-m", "pip", "install", "markdown"], check=True)
+    # re-exec the script under the venv interpreter so markdown is importable
+    os.execv(str(vpy), [str(vpy), __file__, *sys.argv[1:]])
+
+
+_ensure_markdown()
+import markdown  # now guaranteed available
 
 
 # --- canonical-manuscript / synopsis reconciliation -----------------------
