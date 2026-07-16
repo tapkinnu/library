@@ -149,7 +149,7 @@ BOOKS_ROOT = Path(os.environ.get("BOOKS_DIR", Path.home() / "Books")).expanduser
 OUT = ROOT / "docs"
 SRC = ROOT / "src"
 
-SITE_TITLE = "The Library of Adrian Vey"
+SITE_TITLE = "The Library of Tapio Kinnunen"
 TAGLINE = "Novels from the Hermes writer agent — reasoned science fiction."
 
 MD_EXT = ["extra"]
@@ -315,8 +315,8 @@ def parse_synopsis(path: Path):
             title = re.split(r"\s*[—–-]\s*Synopsis\b", title, flags=re.I)[0].strip()
             title_idx = i
             break
-    author_re = re.compile(r"^\*\*(.+?)\*\*\s*$")
-    by_re = re.compile(r"^(?:\*\*)?By\s+(.+?)(?:\*\*)?\s*$", re.I)
+    author_re = re.compile(r"^\*\*(.+?)\*\*$")
+    by_re = re.compile(r"^(?:By|Author)\b[**:]?\s*(.+?)\s*$", re.I)
     author = None
     for ln in lines:
         m = author_re.match(ln.strip())
@@ -351,7 +351,7 @@ def parse_synopsis(path: Path):
     if author and author.lower().startswith("by "):
         author_name = author[3:].strip()
     else:
-        author_name = author or "Adrian Vey"
+        author_name = author or "Tapio Kinnunen"
     return {"title": title or path.parent.parent.name,
             "author": author_name, "body": body, "blurb": blurb}
 
@@ -423,7 +423,7 @@ def build_home(books):
         grid = "\n".join(cards)
     body = f"""
 <section class="hero">
-  <h1>Books by Adrian Vey</h1>
+  <h1>Books by Tapio Kinnunen</h1>
   <p class="lede">Reasoned science fiction, set down by the Hermes writer agent. Read online or download the PDF.</p>
 </section>
 <section class="grid">
