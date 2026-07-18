@@ -327,13 +327,13 @@ def parse_synopsis(path: Path):
             title = re.split(r"\s*[—–-]\s*Synopsis\b", title, flags=re.I)[0].strip()
             title_idx = i
             break
-    author_re = re.compile(r"^\*\*(.+?)\*\*$")
+    author_re = re.compile(r"^\*\*(.+?)\*\*$|^\*(.+?)\*$")
     by_re = re.compile(r"^(?:By|Author)\b[**:]?\s*(.+?)\s*$", re.I)
     author = None
     for ln in lines:
         m = author_re.match(ln.strip())
         if m:
-            author = m.group(1).strip()
+            author = (m.group(1) or m.group(2)).strip()
             break
         m = by_re.match(ln.strip())
         if m:
@@ -343,12 +343,41 @@ def parse_synopsis(path: Path):
     body_lines = [ln for ln in rest
                   if not author_re.match(ln.strip())
                   and not by_re.match(ln.strip())]
-    # short blurb: narrative paragraphs before the first list/meta line
+    # --- robust narrative blurb extraction -------------------------------
+    # A "meta" line is a bold/italic label like **Genre:**, a bullet, a
+    # heading, or a trailing italic credit (e.g. "*71,000 words · by ...*").
+    # The blurb is the contiguous narrative block. If a "## Synopsis" (or
+    # similar) restart heading appears, the narrative starts AFTER it.
+    bold_meta_re = re.compile(r"^\*\*[^*]+?\*\*\s*:")
+    italic_meta_re = re.compile(r"^\*[^*].*?\*\s*$")
+    heading_re = re.compile(r"^#{1,6}\s")
+    bullet_re = re.compile(r"^\s*[-*]\s")
+
+    def is_meta(s):
+        if bullet_re.match(s) or heading_re.match(s):
+            return True
+        if bold_meta_re.match(s):
+            return True
+        # trailing italic credit line (contains "words" or "by <author>")
+        if italic_meta_re.match(s) and ("words" in s.lower()
+                                        or "by tapio" in s.lower()
+                                        or "by adrian" in s.lower()):
+            return True
+        return False
+
+    # find the narrative start: default right after the title block, but if a
+    # "## Synopsis"/"## Premise" restart heading exists, begin there.
+    start = 0
+    for i, ln in enumerate(rest):
+        s = ln.strip()
+        if heading_re.match(s) and re.search(r"synopsis|premise", s, re.I):
+            start = i + 1
+            break
     blurb_lines = []
     started = False
-    for ln in rest:
+    for ln in rest[start:]:
         s = ln.strip()
-        if s.startswith("- ") or s.startswith("#"):
+        if is_meta(s):
             break
         if author_re.match(s) or by_re.match(s):
             continue
