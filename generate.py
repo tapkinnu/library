@@ -398,10 +398,20 @@ def parse_synopsis(path: Path):
 
 
 # --- page builders ----------------------------------------------------------
-def base_html(*, title, desc, body, extra_head=""):
+def base_html(*, title, desc, body, extra_head="", nav="all"):
     t = html.escape(title)
     d = html.escape(desc)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    nav_items = [
+        ("All", page_url("index.html"), "all"),
+        ("Novels", page_url("novels.html"), "novels"),
+        ("Comics", page_url("comics.html"), "comics"),
+    ]
+    nav_html = '<nav class="site-nav" aria-label="Categories">'
+    for label, href, key in nav_items:
+        cls = "site-nav-link" + (" active" if key == nav else "")
+        nav_html += f'<a class="{cls}" href="{href}">{label}</a>'
+    nav_html += "</nav>"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -418,6 +428,7 @@ def base_html(*, title, desc, body, extra_head=""):
   <div class="wrap site-head-inner">
     <a class="brand" href="{BASE}/">{SITE_TITLE}</a>
     <p class="tagline">{TAGLINE}</p>
+    {nav_html}
   </div>
 </header>
 <main class="wrap">
@@ -432,24 +443,16 @@ def base_html(*, title, desc, body, extra_head=""):
 </html>"""
 
 
-def build_home(books):
-    if not books:
-        return base_html(title="Books", desc=TAGLINE,
-                         body='<section class="hero"><h1>Books by Tapio Kinnunen</h1>'
-                              '<p class="lede">Reasoned science fiction, set down by '
-                              'the Hermes writer agent.</p></section>\n'
-                              '<p class="empty">No books published yet.</p>')
-
-    def card(b):
-        syn = b["syn_parsed"]
-        cover_url = page_url("books", b["slug"], f"{b['slug']}-cover.png")
-        book_url = page_url("books", b["slug"], "index.html")
-        pdf_url = (page_url("books", b["slug"], b["pdf_name"])
-                   if b["pdf"] else None)
-        blurb_html = md_to_html(syn["blurb"]) if syn["blurb"] else ""
-        pdf_btn = (f'<a class="btn btn-sm" href="{pdf_url}">PDF</a>'
-                   if pdf_url else "")
-        return f"""
+def card(b):
+    syn = b["syn_parsed"]
+    cover_url = page_url("books", b["slug"], f"{b['slug']}-cover.png")
+    book_url = page_url("books", b["slug"], "index.html")
+    pdf_url = (page_url("books", b["slug"], b["pdf_name"])
+               if b["pdf"] else None)
+    blurb_html = md_to_html(syn["blurb"]) if syn["blurb"] else ""
+    pdf_btn = (f'<a class="btn btn-sm" href="{pdf_url}">PDF</a>'
+               if pdf_url else "")
+    return f"""
 <article class="card">
   <a class="card-cover-link" href="{book_url}">
     <img class="card-cover" src="{cover_url}" alt="Cover of {html.escape(syn['title'])}" loading="lazy">
@@ -464,6 +467,29 @@ def build_home(books):
     </div>
   </div>
 </article>"""
+
+
+def build_section(title, subtitle, books_list, nav):
+    if not books_list:
+        body = (f'<section class="hero"><h1>{html.escape(title)}</h1>'
+                f'<p class="lede">{html.escape(subtitle)}</p></section>\n'
+                '<p class="empty">Nothing here yet.</p>')
+    else:
+        grid = "\n".join(card(b) for b in books_list)
+        body = (f'<section class="hero"><h1>{html.escape(title)}</h1>'
+                f'<p class="lede">{html.escape(subtitle)}</p></section>\n'
+                f'<section class="grid-section">\n<div class="grid">\n'
+                f'{grid}\n</div>\n</section>')
+    return base_html(title=title, desc=subtitle, body=body, nav=nav)
+
+
+def build_home(books):
+    if not books:
+        return base_html(title="Books", desc=TAGLINE,
+                         body='<section class="hero"><h1>Books by Tapio Kinnunen</h1>'
+                              '<p class="lede">Reasoned science fiction, set down by '
+                              'the Hermes writer agent.</p></section>\n'
+                              '<p class="empty">No books published yet.</p>')
 
     comics = [b for b in books if b["is_comic"]]
     novels = [b for b in books if not b["is_comic"]]
@@ -486,7 +512,7 @@ def build_home(books):
 </section>
 {"".join(sections)}
 """
-    return base_html(title="Books", desc=TAGLINE, body=body)
+    return base_html(title="Books", desc=TAGLINE, body=body, nav="all")
 
 
 def build_book(b):
@@ -637,6 +663,14 @@ def main():
         parsed.append(dict(b, syn_parsed=syn, pdf_name=pdf_name))
     parsed.sort(key=lambda x: x["syn_parsed"]["title"].lower())
     (OUT / "index.html").write_text(build_home(parsed), encoding="utf-8")
+    comics_list = [b for b in parsed if b["is_comic"]]
+    novels_list = [b for b in parsed if not b["is_comic"]]
+    (OUT / "comics.html").write_text(
+        build_section("Comics", "Graphic novels and illustrated stories.", comics_list, "comics"),
+        encoding="utf-8")
+    (OUT / "novels.html").write_text(
+        build_section("Novels", "Reasoned science fiction, set down by the Hermes writer agent.", novels_list, "novels"),
+        encoding="utf-8")
     for b in parsed:
         dest = OUT / "books" / b["slug"]
         dest.mkdir(parents=True, exist_ok=True)
