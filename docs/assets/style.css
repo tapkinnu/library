@@ -118,3 +118,18 @@ a:hover{text-decoration:underline;}
   body{font-size:17px;}
   .manuscript{padding:30px 22px;}
 }
+
+/* comics / novels sections on home */
+.grid-section{padding:18px 0 8px;}
+.section-head{font-family:var(--sans);text-transform:uppercase;letter-spacing:.12em;
+  font-size:.95rem;color:var(--terra-dark);margin:0 0 4px;
+  border-bottom:2px solid var(--line);padding-bottom:8px;}
+
+/* inline comic gallery */
+.gallery{padding:24px 0 80px;display:flex;flex-direction:column;gap:22px;
+  max-width:760px;margin:0 auto;}
+.comic-page{margin:0;background:#0b1120;border:1px solid var(--line);
+  border-radius:10px;overflow:hidden;box-shadow:0 8px 26px rgba(20,33,54,.18);}
+.comic-page img{width:100%;display:block;}
+.comic-page figcaption{font-family:var(--sans);font-size:.8rem;color:#AEB6C9;
+  text-align:center;padding:8px 0;background:var(--navy-deep);}

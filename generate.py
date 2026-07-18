@@ -93,13 +93,14 @@ def word_count_md(path: Path) -> int:
         return len(txt.split())
 
 
-def reconcile_synopsis(syn_path: Path, wc: int) -> bool:
-    """Rewrite the **Length:** line in synopsis.md to match the canonical
-    manuscript's real word count. Returns True if the file was changed.
+def reconcile_synopsis(syn_path: Path, wc: int, pages: int = 0) -> bool:
+    """Rewrite the **Length:** line in synopsis.md. For comics (pages > 0) the
+    value is the page count; for novels it is the canonical manuscript's real
+    word count. Returns True if the file was changed.
 
     Preserves every other line and the line's original prefix (bullet,
     indentation, or none). Idempotent: re-running on an already-correct
-    synopsis is a no-op. Handles '~N words', 'N words', '~N,NNN words', etc.
+    synopsis is a no-op.
     """
     raw = syn_path.read_text(encoding="utf-8")
     lines = raw.splitlines()
@@ -107,8 +108,11 @@ def reconcile_synopsis(syn_path: Path, wc: int) -> bool:
     changed = False
     # Match any line that contains a **Length:** marker, with any leading
     # bullet/whitespace prefix. Capture the prefix so we keep it.
-    pat = re.compile(r"^(?P<pre>[\s\*\-\>]*)\*\*(?i:Length):\*\*\s*.+")
-    new_val = f"**Length:** {wc:,} words"
+    pat = re.compile(r"^(?P<pre>[\s\*\-\>]*)\*\*(?i:Length):\*\*s*.+")
+    if pages > 0:
+        new_val = f"**Length:** {pages} pages"
+    else:
+        new_val = f"**Length:** {wc:,} words"
     for ln in lines:
         m = pat.match(ln)
         if m:
@@ -190,6 +194,13 @@ def discover_books():
                 or [p for p in d.glob("manuscript/*.pdf")
                     if "archive" not in p.parts])
         pdf = pdfs[0] if pdfs else None
+        # A book is a comic if it ships a pages/ dir with page-N.png panels.
+        page_imgs = sorted(
+            [p for p in (d / "pages").glob("page-*.png")
+             if not p.name.startswith("~") and "archive" not in p.parts],
+            key=lambda p: int("".join(filter(str.isdigit, p.stem)) or 0),
+        )
+        is_comic = len(page_imgs) > 0
         if not (cover and syn and mdfile):
             print(f"[skip] {slug}: cover={bool(cover)} synopsis={bool(syn)} "
                   f"manuscript={bool(mdfile)}")
@@ -198,6 +209,7 @@ def discover_books():
         wc = word_count_md(mdfile)
         books.append({"slug": slug, "cover": cover, "syn": syn,
                       "md": mdfile, "pdf": pdf,
+                      "pages": page_imgs, "is_comic": is_comic,
                       "md_hash": digest, "wc": wc})
     return books
 
@@ -393,19 +405,22 @@ def base_html(*, title, desc, body, extra_head=""):
 
 def build_home(books):
     if not books:
-        grid = '<p class="empty">No books published yet.</p>'
-    else:
-        cards = []
-        for b in books:
-            syn = b["syn_parsed"]
-            cover_url = page_url("books", b["slug"], f"{b['slug']}-cover.png")
-            book_url = page_url("books", b["slug"], "index.html")
-            pdf_url = (page_url("books", b["slug"], b["pdf_name"])
-                       if b["pdf"] else None)
-            blurb_html = md_to_html(syn["blurb"]) if syn["blurb"] else ""
-            pdf_btn = (f'<a class="btn btn-sm" href="{pdf_url}">PDF</a>'
-                       if pdf_url else "")
-            cards.append(f"""
+        return base_html(title="Books", desc=TAGLINE,
+                         body='<section class="hero"><h1>Books by Tapio Kinnunen</h1>'
+                              '<p class="lede">Reasoned science fiction, set down by '
+                              'the Hermes writer agent.</p></section>\n'
+                              '<p class="empty">No books published yet.</p>')
+
+    def card(b):
+        syn = b["syn_parsed"]
+        cover_url = page_url("books", b["slug"], f"{b['slug']}-cover.png")
+        book_url = page_url("books", b["slug"], "index.html")
+        pdf_url = (page_url("books", b["slug"], b["pdf_name"])
+                   if b["pdf"] else None)
+        blurb_html = md_to_html(syn["blurb"]) if syn["blurb"] else ""
+        pdf_btn = (f'<a class="btn btn-sm" href="{pdf_url}">PDF</a>'
+                   if pdf_url else "")
+        return f"""
 <article class="card">
   <a class="card-cover-link" href="{book_url}">
     <img class="card-cover" src="{cover_url}" alt="Cover of {html.escape(syn['title'])}" loading="lazy">
@@ -419,16 +434,28 @@ def build_home(books):
       {pdf_btn}
     </div>
   </div>
-</article>""")
-        grid = "\n".join(cards)
+</article>"""
+
+    comics = [b for b in books if b["is_comic"]]
+    novels = [b for b in books if not b["is_comic"]]
+
+    sections = []
+    if comics:
+        sections.append(f'<section class="grid-section">\n'
+                        f'<h2 class="section-head">Comics</h2>\n'
+                        f'<div class="grid">\n' + "\n".join(card(b) for b in comics)
+                        + '\n</div>\n</section>')
+    if novels:
+        sections.append(f'<section class="grid-section">\n'
+                        f'<h2 class="section-head">Novels</h2>\n'
+                        f'<div class="grid">\n' + "\n".join(card(b) for b in novels)
+                        + '\n</div>\n</section>')
     body = f"""
 <section class="hero">
   <h1>Books by Tapio Kinnunen</h1>
   <p class="lede">Reasoned science fiction, set down by the Hermes writer agent. Read online or download the PDF.</p>
 </section>
-<section class="grid">
-{grid}
-</section>
+{"".join(sections)}
 """
     return base_html(title="Books", desc=TAGLINE, body=body)
 
@@ -439,11 +466,17 @@ def build_book(b):
     read_url = page_url("books", b["slug"], "read.html")
     pdf_url = (page_url("books", b["slug"], b["pdf_name"])
                if b["pdf"] else None)
+    gallery_url = (page_url("books", b["slug"], "gallery.html")
+                   if b["is_comic"] else None)
     syn_html = md_to_html(syn["body"])
-    actions = [f'<a class="btn btn-primary" href="{read_url}">Read online</a>']
+    actions = []
+    if b["is_comic"] and gallery_url:
+        actions.append(f'<a class="btn btn-primary" href="{gallery_url}">Read the comic</a>')
+    else:
+        actions.append(f'<a class="btn btn-primary" href="{read_url}">Read online</a>')
     if pdf_url:
         actions.append(f'<a class="btn" href="{pdf_url}">Download PDF</a>')
-    actions.append(f'<a class="btn btn-ghost" href="{BASE}/">← All books</a>')
+    actions.append(f'<a class="btn btn-ghost" href="{BASE}/">All books</a>')
     body = f"""
 <article class="book">
   <div class="book-hero">
@@ -460,16 +493,49 @@ def build_book(b):
     return base_html(title=syn["title"], desc=(syn["blurb"] or TAGLINE), body=body)
 
 
+def build_gallery(b):
+    syn = b["syn_parsed"]
+    bar = f"""
+<header class="read-bar">
+  <a href="{BASE}/">Library</a>
+  <span class="read-title">{html.escape(syn['title'])}</span>
+  <a href="{page_url('books', b['slug'], 'index.html')}">About</a>
+  <a href="{page_url('books', b['slug'], 'read.html')}">Script</a>
+</header>"""
+    figs = []
+    for i, p in enumerate(b["pages"], 1):
+        src = page_url("books", b["slug"], f"pages/{p.name}")
+        figs.append(f'<figure class="comic-page">'
+                    f'<img src="{src}" alt="{html.escape(syn["title"])} page {i}" loading="lazy">'
+                    f'<figcaption>Page {i}</figcaption></figure>')
+    body = (f"{bar}\n<main class=\"wrap gallery\">\n" + "\n".join(figs) + "\n</main>")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Read {html.escape(syn['title'])} · {SITE_TITLE}</title>
+<link rel="icon" href="{asset('favicon.svg')}">
+<link rel="stylesheet" href="{asset('style.css')}">
+</head>
+<body class="read-page">
+{body}
+</body>
+</html>"""
+
 def build_read(b, manuscript_html):
     syn = b["syn_parsed"]
     book_url = page_url("books", b["slug"], "index.html")
     pdf_url = (page_url("books", b["slug"], b["pdf_name"])
                if b["pdf"] else None)
     pdf_link = f'<a href="{pdf_url}">PDF</a>' if pdf_url else ""
+    gallery_link = (f'<a href="{page_url("books", b["slug"], "gallery.html")}">Comic</a>'
+                    if b["is_comic"] else "")
     bar = f"""
 <header class="read-bar">
   <a href="{BASE}/">Library</a>
   <span class="read-title">{html.escape(syn['title'])}</span>
+  {gallery_link}
   {pdf_link}
 </header>"""
     foot = (f'<footer class="read-foot wrap">'
@@ -528,7 +594,7 @@ def main():
                       f"(was {prev.get('wc')} words, now {b['wc']})")
             else:
                 print(f"[new]  {slug}: first build ({b['wc']} words)")
-        changed = reconcile_synopsis(b["syn"], b["wc"])
+        changed = reconcile_synopsis(b["syn"], b["wc"], pages=len(b["pages"]))
         if changed:
             print(f"[sync] {slug}: synopsis Length updated -> {b['wc']:,} words")
         state[slug] = {"md_hash": b["md_hash"], "wc": b["wc"]}
@@ -552,6 +618,13 @@ def main():
         md_text = b["md"].read_text(encoding="utf-8")
         (dest / "read.html").write_text(
             build_read(b, md_to_html(md_text)), encoding="utf-8")
+        if b["is_comic"] and b["pages"]:
+            pages_dest = dest / "pages"
+            pages_dest.mkdir(parents=True, exist_ok=True)
+            for p in b["pages"]:
+                shutil.copy(p, pages_dest / p.name)
+            (dest / "gallery.html").write_text(
+                build_gallery(b), encoding="utf-8")
         print(f"[ok] {b['slug']}: {b['syn_parsed']['title']}")
     print(f"Built {len(parsed)} book(s) into {OUT}")
 
