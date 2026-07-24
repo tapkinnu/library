@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the static Adrian Vey book-library site (GitHub Pages ready).
+"""Generate the static Tapio Kinnunen book-library site (GitHub Pages ready).
 
 Scans ~/Books/*/ for finished books and emits a static site into ./docs.
 
@@ -108,7 +108,7 @@ def reconcile_synopsis(syn_path: Path, wc: int, pages: int = 0) -> bool:
     changed = False
     # Match any line that contains a **Length:** marker, with any leading
     # bullet/whitespace prefix. Capture the prefix so we keep it.
-    pat = re.compile(r"^(?P<pre>[\s\*\-\>]*)\*\*(?i:Length):\*\*s*.+")
+    pat = re.compile(r"^(?P<pre>[\s\*\-\>]*)\*\*(?i:Length):\*\*\s*.+")
     if pages > 0:
         new_val = f"**Length:** {pages} pages"
     else:
@@ -158,7 +158,8 @@ TAGLINE = "Novels from the Hermes writer agent — reasoned science fiction."
 
 MD_EXT = ["extra"]
 
-# --- helpers ----------------------------------------------------------------
+
+# --- helpers ---------------------------------------------------------------
 def md_to_html(text: str) -> str:
     return markdown.markdown(text, extensions=MD_EXT)
 
@@ -207,10 +208,18 @@ def discover_books():
             continue
         digest = _sha256(mdfile)
         wc = word_count_md(mdfile)
+        # Compute latest mtime across all relevant book files for "newest first" sorting
+        latest_mtime = 0
+        for pattern in ["cover/*-cover.png", "cover/synopsis.md", "manuscript/*.md", "manuscript/*.pdf"]:
+            for f in d.glob(pattern):
+                if "archive" not in f.parts and not f.name.startswith("~"):
+                    mtime = f.stat().st_mtime
+                    if mtime > latest_mtime:
+                        latest_mtime = mtime
         books.append({"slug": slug, "cover": cover, "syn": syn,
                       "md": mdfile, "pdf": pdf,
                       "pages": page_imgs, "is_comic": is_comic,
-                      "md_hash": digest, "wc": wc})
+                      "md_hash": digest, "wc": wc, "mtime": latest_mtime})
     return books
 
 
@@ -314,8 +323,6 @@ def _build_pdf_fallback(md_path: Path, out_path: Path) -> None:
 
 
 
-
-
 def parse_synopsis(path: Path):
     raw = path.read_text(encoding="utf-8")
     lines = raw.splitlines()
@@ -348,7 +355,7 @@ def parse_synopsis(path: Path):
     # heading, or a trailing italic credit (e.g. "*71,000 words · by ...*").
     # The blurb is the contiguous narrative block. If a "## Synopsis" (or
     # similar) restart heading appears, the narrative starts AFTER it.
-    bold_meta_re = re.compile(r"^\*\*[^*]+?\*\*\s*:")
+    bold_meta_re = re.compile(r"^\*\*[^*]+\*\*\s*:")
     italic_meta_re = re.compile(r"^\*[^*].*?\*\s*$")
     heading_re = re.compile(r"^#{1,6}\s")
     bullet_re = re.compile(r"^\s*[-*]\s")
@@ -358,7 +365,7 @@ def parse_synopsis(path: Path):
             return True
         if bold_meta_re.match(s):
             return True
-        # trailing italic credit line (contains "words" or "by <author>")
+        # trailing italic credit line (contains "words" or "by tapio"/"by adrian")
         if italic_meta_re.match(s) and ("words" in s.lower()
                                         or "by tapio" in s.lower()
                                         or "by adrian" in s.lower()):
@@ -452,8 +459,7 @@ def card(b):
     blurb_html = md_to_html(syn["blurb"]) if syn["blurb"] else ""
     pdf_btn = (f'<a class="btn btn-sm" href="{pdf_url}">PDF</a>'
                if pdf_url else "")
-    return f"""
-<article class="card">
+    return f"""<article class="card">
   <a class="card-cover-link" href="{book_url}">
     <img class="card-cover" src="{cover_url}" alt="Cover of {html.escape(syn['title'])}" loading="lazy">
   </a>
@@ -462,7 +468,7 @@ def card(b):
     <h2 class="card-title"><a href="{book_url}">{html.escape(syn['title'])}</a></h2>
     <div class="card-blurb">{blurb_html}</div>
     <div class="card-actions">
-      <a class="btn btn-primary btn-sm" href="{book_url}">View &amp; read</a>
+      <a class="btn btn-primary btn-sm" href="{book_url}">View & read</a>
       {pdf_btn}
     </div>
   </div>
@@ -491,27 +497,17 @@ def build_home(books):
                               'the Hermes writer agent.</p></section>\n'
                               '<p class="empty">No books published yet.</p>')
 
-    comics = [b for b in books if b["is_comic"]]
-    novels = [b for b in books if not b["is_comic"]]
-
-    sections = []
-    if comics:
-        sections.append(f'<section class="grid-section">\n'
-                        f'<h2 class="section-head">Comics</h2>\n'
-                        f'<div class="grid">\n' + "\n".join(card(b) for b in comics)
-                        + '\n</div>\n</section>')
-    if novels:
-        sections.append(f'<section class="grid-section">\n'
-                        f'<h2 class="section-head">Novels</h2>\n'
-                        f'<div class="grid">\n' + "\n".join(card(b) for b in novels)
-                        + '\n</div>\n</section>')
-    body = f"""
-<section class="hero">
+    # Single unified grid: all books (comics + novels) sorted newest first
+    grid = "\n".join(card(b) for b in books)
+    body = f"""<section class="hero">
   <h1>Books by Tapio Kinnunen</h1>
   <p class="lede">Reasoned science fiction, set down by the Hermes writer agent. Read online or download the PDF.</p>
 </section>
-{"".join(sections)}
-"""
+<section class="grid-section">
+<div class="grid">
+{grid}
+</div>
+</section>"""
     return base_html(title="Books", desc=TAGLINE, body=body, nav="all")
 
 
@@ -532,8 +528,7 @@ def build_book(b):
     if pdf_url:
         actions.append(f'<a class="btn" href="{pdf_url}">Download PDF</a>')
     actions.append(f'<a class="btn btn-ghost" href="{BASE}/">All books</a>')
-    body = f"""
-<article class="book">
+    body = f"""<article class="book">
   <div class="book-hero">
     <img class="book-cover" src="{cover_url}" alt="Cover of {html.escape(syn['title'])}">
     <div class="book-meta">
@@ -543,15 +538,13 @@ def build_book(b):
       <div class="actions">{''.join(actions)}</div>
     </div>
   </div>
-</article>
-"""
+</article>"""
     return base_html(title=syn["title"], desc=(syn["blurb"] or TAGLINE), body=body)
 
 
 def build_gallery(b):
     syn = b["syn_parsed"]
-    bar = f"""
-<header class="read-bar">
+    bar = f"""<header class="read-bar">
   <a href="{BASE}/">Library</a>
   <span class="read-title">{html.escape(syn['title'])}</span>
   <a href="{page_url('books', b['slug'], 'index.html')}">About</a>
@@ -578,6 +571,7 @@ def build_gallery(b):
 </body>
 </html>"""
 
+
 def build_read(b, manuscript_html):
     syn = b["syn_parsed"]
     book_url = page_url("books", b["slug"], "index.html")
@@ -586,8 +580,7 @@ def build_read(b, manuscript_html):
     pdf_link = f'<a href="{pdf_url}">PDF</a>' if pdf_url else ""
     gallery_link = (f'<a href="{page_url("books", b["slug"], "gallery.html")}">Comic</a>'
                     if b["is_comic"] else "")
-    bar = f"""
-<header class="read-bar">
+    bar = f"""<header class="read-bar">
   <a href="{BASE}/">Library</a>
   <span class="read-title">{html.escape(syn['title'])}</span>
   {gallery_link}
@@ -661,7 +654,8 @@ def main():
         # Deterministic, slug-based asset names so links always match files.
         pdf_name = f"{b['slug']}.pdf" if b["pdf"] else None
         parsed.append(dict(b, syn_parsed=syn, pdf_name=pdf_name))
-    parsed.sort(key=lambda x: x["syn_parsed"]["title"].lower())
+    # Sort by most recently modified first (newest book or most recently edited at top)
+    parsed.sort(key=lambda x: x.get("mtime", 0), reverse=True)
     (OUT / "index.html").write_text(build_home(parsed), encoding="utf-8")
     comics_list = [b for b in parsed if b["is_comic"]]
     novels_list = [b for b in parsed if not b["is_comic"]]
