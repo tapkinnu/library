@@ -184,9 +184,24 @@ def discover_books():
         if d.name.startswith("_") or d.name.startswith("."):
             continue
         slug = d.name
-        # Canonical name first, then common alternates (cover.png / Cover.png),
-        # then any *-cover.png. A missing cover is logged as a skip reason so
-        # future misnamings do not silently disappear.
+        cover_canonical = d / "cover" / f"{slug}-cover.png"
+        if not cover_canonical.exists():
+            # Auto-heal: if alternate cover files exist (cover.png, Cover.png, art.png, or any other png in cover/), copy/normalize to canonical name
+            alternates = (
+                list(d.glob("cover/cover.png"))
+                + list(d.glob("cover/Cover.png"))
+                + list(d.glob("cover/art.png"))
+                + [p for p in d.glob("cover/*.png") if not p.name.endswith("-cover.png")]
+            )
+            if alternates:
+                src = alternates[0]
+                try:
+                    import shutil
+                    shutil.copy2(src, cover_canonical)
+                    print(f"[auto-fix] {slug}: copied {src.name} -> {cover_canonical.name}")
+                except Exception as e:
+                    print(f"[warn] {slug}: failed to auto-fix cover: {e}")
+
         cover = (list(d.glob(f"cover/{slug}-cover.png"))
                  or list(d.glob("cover/cover.png"))
                  or list(d.glob("cover/Cover.png"))
