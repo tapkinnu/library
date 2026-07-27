@@ -180,8 +180,16 @@ def discover_books():
     for d in sorted(BOOKS_ROOT.iterdir()):
         if not d.is_dir():
             continue
+        # Skip auxiliary / non-book directories (e.g. _venv, _autopilot_state)
+        if d.name.startswith("_") or d.name.startswith("."):
+            continue
         slug = d.name
+        # Canonical name first, then common alternates (cover.png / Cover.png),
+        # then any *-cover.png. A missing cover is logged as a skip reason so
+        # future misnamings do not silently disappear.
         cover = (list(d.glob(f"cover/{slug}-cover.png"))
+                 or list(d.glob("cover/cover.png"))
+                 or list(d.glob("cover/Cover.png"))
                  or list(d.glob("cover/*-cover.png")))
         cover = cover[0] if cover else None
         syn = d / "cover" / "synopsis.md"
@@ -203,8 +211,18 @@ def discover_books():
         )
         is_comic = len(page_imgs) > 0
         if not (cover and syn and mdfile):
-            print(f"[skip] {slug}: cover={bool(cover)} synopsis={bool(syn)} "
-                  f"manuscript={bool(mdfile)}")
+            # Build a precise skip reason so future misnamings are loud, not silent.
+            reasons = []
+            if not cover:
+                present = [p.name for p in d.glob("cover/*.png")]
+                reasons.append(
+                    f"no cover matching cover/{slug}-cover.png (found: {present or 'none'})"
+                )
+            if not syn:
+                reasons.append("missing cover/synopsis.md")
+            if not mdfile:
+                reasons.append("missing manuscript/<slug>.md")
+            print(f"[skip] {slug}: " + "; ".join(reasons))
             continue
         digest = _sha256(mdfile)
         wc = word_count_md(mdfile)
