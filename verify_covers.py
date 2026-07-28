@@ -237,9 +237,15 @@ def _looks_textless(cover_path: Path, use_ocr: bool = True) -> tuple[bool, dict]
     try:
         with Image.open(cover_path) as im:
             im.load()
-            diag["size"] = im.size
+            w, h = im.size
+            diag["size"] = (w, h)
     except Exception as e:
         return True, {**diag, "error": f"open failed: {e}"}
+
+    # House rule: covers must be portrait (h > w).
+    if h <= w:
+        diag["error"] = f"landscape cover ({w}x{h}, h/w={h/w:.3f}); library covers MUST be portrait (h > w)"
+        return True, diag
 
     if not use_ocr:
         return False, diag

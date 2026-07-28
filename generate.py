@@ -285,6 +285,29 @@ def discover_books():
                  or list(d.glob("cover/Cover.png"))
                  or list(d.glob("cover/*-cover.png")))
         cover = cover[0] if cover else None
+        # House rule (enforced 2026-07-29): published covers MUST be portrait
+        # (h > w). Library standard is 576x1024 (9:16). Landscape covers
+        # silently shipped on the-calibration-of-gaps because the raw AI
+        # art came back 16:9 — refuse the book so a human retypesets it
+        # before the next publish tick. A landscape cover cannot typeset
+        # title + byline without breaking the layout, so failing here is
+        # cheaper than the OCR gate catching it later.
+        if cover is not None:
+            try:
+                from PIL import Image as _PILImage
+                with _PILImage.open(cover) as _cim:
+                    _cim.load()
+                    _cw, _ch = _cim.size
+                if _ch <= _cw:
+                    print(
+                        f"[fail-portrait] {slug}: cover {cover.name} is landscape "
+                        f"({_cw}x{_ch}, h/w={_ch/_cw:.3f}); must be portrait "
+                        f"(h > w; house standard 576x1024). Regenerate with "
+                        f"cover/make_cover.py using portrait raw art."
+                    )
+                    continue
+            except Exception as _e:
+                print(f"[warn] {slug}: portrait check skipped: {_e}")
         syn = d / "cover" / "synopsis.md"
         syn = syn if syn.exists() else None
         mds = (list(d.glob(f"manuscript/{slug}.md"))
