@@ -185,23 +185,101 @@ def discover_books():
             continue
         slug = d.name
         cover_canonical = d / "cover" / f"{slug}-cover.png"
-        if not cover_canonical.exists():
-            # Auto-heal: if alternate cover files exist (cover.png, Cover.png, art.png, or any other png in cover/), copy/normalize to canonical name
-            alternates = (
-                list(d.glob("cover/cover.png"))
-                + list(d.glob("cover/Cover.png"))
-                + list(d.glob("cover/art.png"))
-                + [p for p in d.glob("cover/*.png") if not p.name.endswith("-cover.png")]
+
+        # --- Cover selection (the "raw art vs typeset" trap) ---
+        # Several books ship BOTH a raw AI art file (cover/art.png / artwork.png /
+        # art-*raw*.png) AND a properly typeset *-cover.png that the author
+        # generated via cover/make_cover.py. If the slug-canonical file happens
+        # to be the raw art (same md5 as the raw sibling), the site ships a
+        # text-less cover. We resolve the right file by:
+        #   1. computing md5 of the slug-canonical file (if present),
+        #   2. identifying "raw art" siblings by md5 match against the canonical
+        #      file (or by path keyword: contains "raw", "art", or "base"),
+        #   3. preferring any other *-cover.png sibling whose md5 DIFFERS (the
+        #      typeset one). If none differ, fall through to the existing
+        #      auto-heal-and-pick-first logic.
+        def _md5(p):
+            try:
+                import hashlib
+                return hashlib.md5(p.read_bytes()).hexdigest()
+            except Exception:
+                return None
+
+        def _is_raw_artifact(p):
+            """Match filename patterns used across the library to denote raw AI art."""
+            n = p.name.lower()
+            return (
+                n == "art.png" or n == "artwork.png" or n == "cover.png"
+                or n == "cover.jpg" or n.startswith("art-") or n.startswith("art_")
+                or "raw" in n or n == "base.png"
             )
-            if alternates:
-                src = alternates[0]
+
+        # Collect all PNGs in cover/ once; we reuse the list below.
+        all_cover_pngs = [p for p in (d / "cover").glob("*.png") if p.is_file()]
+        canonical_md5 = _md5(cover_canonical) if cover_canonical.exists() else None
+        # md5 -> [paths] for fast lookup
+        md5_index = {}
+        for p in all_cover_pngs:
+            h = _md5(p)
+            if h:
+                md5_index.setdefault(h, []).append(p)
+        # Find any sibling "raw art" whose md5 matches the canonical. If so the
+        # canonical is the raw art and we must promote a *typeset* sibling instead.
+        typeset_sibling = None
+        if canonical_md5 and md5_index.get(canonical_md5):
+            siblings_same_md5 = md5_index[canonical_md5]
+            is_canonical_raw = (
+                cover_canonical.name.lower() in {"cover.png", "art.png", "artwork.png"}
+                or any(_is_raw_artifact(s) for s in siblings_same_md5 if s != cover_canonical)
+            )
+            if is_canonical_raw:
+                # Look for any other *-cover.png whose md5 differs (= the typeset one).
+                for p in all_cover_pngs:
+                    if p == cover_canonical:
+                        continue
+                    if not p.name.endswith("-cover.png"):
+                        continue
+                    h = _md5(p)
+                    if h and h != canonical_md5:
+                        typeset_sibling = p
+                        break
+
+        if typeset_sibling is not None:
+            # Promote the typeset sibling over the raw canonical. This is the
+            # "raw art vs typeset" fix: the canonical file exists but is the
+            # wrong one.
+            try:
+                import shutil
+                shutil.copy2(typeset_sibling, cover_canonical)
+                print(f"[auto-fix] {slug}: promoted typeset sibling {typeset_sibling.name} "
+                      f"over raw-art canonical ({Path(cover_canonical).name}); same md5 as "
+                      f"{', '.join(sorted({Path(s).name for s in md5_index[canonical_md5]}))}")
+            except Exception as e:
+                print(f"[warn] {slug}: failed to promote typeset sibling: {e}")
+        elif not cover_canonical.exists():
+            # Auto-heal: pick the best alternate. If any typeset *-cover.png
+            # exists, prefer it OVER a bare raw-art filename, so we never
+            # silently pick raw art just because it sorts earlier.
+            typeset_alts = [p for p in all_cover_pngs if p.name.endswith("-cover.png")]
+            raw_alts = [p for p in all_cover_pngs if _is_raw_artifact(p)]
+            other_alts = [p for p in all_cover_pngs
+                          if p not in typeset_alts and p not in raw_alts]
+            src = (
+                (typeset_alts + other_alts + raw_alts)[:1]
+            )[0] if (typeset_alts or other_alts or raw_alts) else None
+            if src is not None:
                 try:
                     import shutil
                     shutil.copy2(src, cover_canonical)
-                    print(f"[auto-fix] {slug}: copied {src.name} -> {cover_canonical.name}")
+                    tag = ("typeset" if src in typeset_alts
+                           else "raw" if src in raw_alts
+                           else "other")
+                    print(f"[auto-fix] {slug}: copied {src.name} -> {cover_canonical.name} "
+                          f"(picked {tag})")
                 except Exception as e:
                     print(f"[warn] {slug}: failed to auto-fix cover: {e}")
 
+        # Final cover lookup — the canonical name should now be correct.
         cover = (list(d.glob(f"cover/{slug}-cover.png"))
                  or list(d.glob("cover/cover.png"))
                  or list(d.glob("cover/Cover.png"))
