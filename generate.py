@@ -155,6 +155,9 @@ SRC = ROOT / "src"
 
 SITE_TITLE = "The Library of Tapio Kinnunen"
 TAGLINE = "Novels from the Hermes writer agent — reasoned science fiction."
+# SFWA's conventional lower bound for a novel is 40,000 words. Shorter
+# prose works belong on the Novellas page (including novelettes).
+NOVEL_MIN_WORDS = 40_000
 
 MD_EXT = ["extra"]
 
@@ -713,6 +716,7 @@ def base_html(*, title, desc, body, extra_head="", nav="all", adult=False):
     nav_items = [
         ("All", page_url("index.html"), "all"),
         ("Novels", page_url("novels.html"), "novels"),
+        ("Novellas", page_url("novellas.html"), "novellas"),
         ("Comics", page_url("comics.html"), "comics"),
         ("After Dark · 18+", page_url("adult-comics.html"), "adult"),
     ]
@@ -796,6 +800,17 @@ def build_section(title, subtitle, books_list, nav, adult=False):
     return base_html(title=title, desc=subtitle, body=body, nav=nav, adult=adult)
 
 
+def category_for_book(b):
+    """Return the canonical category page URL, label, and nav key."""
+    if b.get("is_adult"):
+        return page_url("adult-comics.html"), "After Dark", "adult"
+    if b.get("is_comic"):
+        return page_url("comics.html"), "Comics", "comics"
+    if b.get("is_novella"):
+        return page_url("novellas.html"), "Novellas", "novellas"
+    return page_url("novels.html"), "Novels", "novels"
+
+
 def build_home(books):
     if not books:
         return base_html(title="Books", desc=TAGLINE,
@@ -834,8 +849,7 @@ def build_book(b):
         actions.append(f'<a class="btn btn-primary" href="{read_url}">Read online</a>')
     if pdf_url:
         actions.append(f'<a class="btn" href="{pdf_url}">Download PDF</a>')
-    back_url = page_url("adult-comics.html") if b.get("is_adult") else f"{BASE}/"
-    back_label = "After Dark" if b.get("is_adult") else "All books"
+    back_url, back_label, section_nav = category_for_book(b)
     actions.append(f'<a class="btn btn-ghost" href="{back_url}">{back_label}</a>')
     adult_note = ("""<aside class="adult-content-note"><strong>18+ adult content.</strong> This erotic comic features consenting adult characters.</aside>"""
                   if b.get("is_adult") else "")
@@ -851,14 +865,15 @@ def build_book(b):
   </div>
 </article>"""
     return base_html(title=syn["title"], desc=(syn["blurb"] or TAGLINE), body=body,
-                     nav="adult" if b.get("is_adult") else "all",
+                     nav=section_nav,
                      adult=b.get("is_adult", False))
 
 
 def build_gallery(b):
     syn = b["syn_parsed"]
+    section_url, section_label, _ = category_for_book(b)
     bar = f"""<header class="read-bar">
-  <a href="{page_url('adult-comics.html') if b.get('is_adult') else BASE + '/'}">{'After Dark' if b.get('is_adult') else 'Library'}</a>
+  <a href="{section_url}">{section_label}</a>
   <span class="read-title">{html.escape(syn['title'])}</span>
   <a href="{page_url('books', b['slug'], 'index.html')}">About</a>
   <a href="{page_url('books', b['slug'], 'read.html')}">Script</a>
@@ -888,6 +903,7 @@ def build_gallery(b):
 
 def build_read(b, manuscript_html):
     syn = b["syn_parsed"]
+    section_url, section_label, _ = category_for_book(b)
     book_url = page_url("books", b["slug"], "index.html")
     pdf_url = (page_url("books", b["slug"], b["pdf_name"])
                if b["pdf"] else None)
@@ -895,7 +911,7 @@ def build_read(b, manuscript_html):
     gallery_link = (f'<a href="{page_url("books", b["slug"], "gallery.html")}">Comic</a>'
                     if b["is_comic"] else "")
     bar = f"""<header class="read-bar">
-  <a href="{page_url('adult-comics.html') if b.get('is_adult') else BASE + '/'}">{'After Dark' if b.get('is_adult') else 'Library'}</a>
+  <a href="{section_url}">{section_label}</a>
   <span class="read-title">{html.escape(syn['title'])}</span>
   {gallery_link}
   {pdf_link}
@@ -981,19 +997,39 @@ def main():
         syn = parse_synopsis(b["syn"])
         # Deterministic, slug-based asset names so links always match files.
         pdf_name = f"{b['slug']}.pdf" if b["pdf"] else None
-        parsed.append(dict(b, syn_parsed=syn, pdf_name=pdf_name))
+        parsed.append(dict(
+            b,
+            syn_parsed=syn,
+            pdf_name=pdf_name,
+            is_novella=(not b["is_comic"] and b["wc"] < NOVEL_MIN_WORDS),
+        ))
     # Sort by most recently modified first (newest book or most recently edited at top)
     parsed.sort(key=lambda x: x.get("mtime", 0), reverse=True)
     public_list = [b for b in parsed if not b.get("is_adult")]
     (OUT / "index.html").write_text(build_home(public_list), encoding="utf-8")
     comics_list = [b for b in parsed if b["is_comic"] and not b.get("is_adult")]
-    novels_list = [b for b in parsed if not b["is_comic"] and not b.get("is_adult")]
+    novels_list = [b for b in parsed
+                   if not b["is_comic"] and not b["is_novella"] and not b.get("is_adult")]
+    novellas_list = [b for b in parsed if b["is_novella"] and not b.get("is_adult")]
     adult_list = [b for b in parsed if b.get("is_adult")]
     (OUT / "comics.html").write_text(
         build_section("Comics", "Graphic novels and illustrated stories.", comics_list, "comics"),
         encoding="utf-8")
     (OUT / "novels.html").write_text(
-        build_section("Novels", "Reasoned science fiction, set down by the Hermes writer agent.", novels_list, "novels"),
+        build_section(
+            "Novels",
+            "Full-length science-fiction novels of 40,000 words or more.",
+            novels_list,
+            "novels",
+        ),
+        encoding="utf-8")
+    (OUT / "novellas.html").write_text(
+        build_section(
+            "Novellas",
+            "Shorter science fiction under 40,000 words, including novellas and novelettes.",
+            novellas_list,
+            "novellas",
+        ),
         encoding="utf-8")
     (OUT / "adult-comics.html").write_text(
         build_section(

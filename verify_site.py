@@ -23,6 +23,7 @@ from pathlib import Path
 
 BOOKS_ROOT = Path.home() / "Books"
 SITE_DOCS = Path(__file__).resolve().parent / "docs"
+NOVEL_MIN_WORDS = 40_000
 
 # --- blurb parsing mirror of generate.parse_synopsis (kept local so this
 #     script has no import coupling to generate.py's internals) ----------
@@ -38,6 +39,19 @@ def _status_explicitly_incomplete(text: str) -> bool:
     incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production", "withdrawn"}
     values = re.findall(r"(?im)^(?:phase|status):\s*[\"']?([^\n\"']+)", text)
     return any(value.strip().lower() in incomplete for value in values)
+
+
+def _adult_content_from_status(text: str) -> bool:
+    return bool(re.search(r"(?im)^adult_content:\s*(?:true|yes|1|on)\s*$", text))
+
+
+def _linked_slugs(page: Path) -> set[str]:
+    if not page.exists():
+        return set()
+    return set(re.findall(
+        r"/library/books/([^/]+)/index\.html",
+        page.read_text(encoding="utf-8"),
+    ))
 
 
 def _is_meta(s: str) -> bool:
@@ -85,12 +99,15 @@ def extract_blurb(syn_text: str) -> str:
 
 def main():
     failures = []
+    expected_novels = set()
+    expected_novellas = set()
     books = sorted(p for p in BOOKS_ROOT.iterdir() if p.is_dir())
     checked = 0
     for d in books:
         slug = d.name
         status = d / "status.yaml"
-        if status.exists() and _status_explicitly_incomplete(status.read_text(encoding="utf-8")):
+        status_text = status.read_text(encoding="utf-8") if status.exists() else ""
+        if _status_explicitly_incomplete(status_text):
             continue
         cover = (list(d.glob("cover/*-cover.png")) or [d / "x"])[0]
         syn = d / "cover" / "synopsis.md"
@@ -98,6 +115,16 @@ def main():
         if not (cover.exists() and syn.exists() and md):
             continue  # not a publishable book; skipped by generate.py too
         checked += 1
+        is_comic = any((d / "pages").glob("page-*.png"))
+        is_adult = _adult_content_from_status(status_text)
+        if not is_comic and not is_adult:
+            canonical_md = d / "manuscript" / f"{slug}.md"
+            md_path = canonical_md if canonical_md.exists() else md[0]
+            prose_words = len(md_path.read_text(encoding="utf-8").split())
+            if prose_words < NOVEL_MIN_WORDS:
+                expected_novellas.add(slug)
+            else:
+                expected_novels.add(slug)
         # (1) PDF uploaded to the site
         site_pdf = SITE_DOCS / "books" / slug / f"{slug}.pdf"
         if not site_pdf.exists():
@@ -150,14 +177,36 @@ def main():
             failures.append(f"{slug}: blurb starts with meta, not narrative: {first[:50]!r}")
             continue
         blurb_words = len(re.findall(r"\b[\w’'-]+\b", blurb))
-        is_comic = any((d / "pages").glob("page-*.png"))
         min_words = 55 if is_comic else 85
         if blurb_words < min_words or blurb_words > 240:
             failures.append(
                 f"{slug}: blurb length {blurb_words} words outside professional band "
                 f"{min_words}-240"
             )
-    print(f"Checked {checked} publishable book(s).")
+    # (4) Category pages must partition prose at the 40,000-word boundary.
+    actual_novels = _linked_slugs(SITE_DOCS / "novels.html")
+    actual_novellas = _linked_slugs(SITE_DOCS / "novellas.html")
+    if actual_novels != expected_novels:
+        failures.append(
+            "novels.html membership mismatch: "
+            f"missing={sorted(expected_novels - actual_novels)}, "
+            f"unexpected={sorted(actual_novels - expected_novels)}"
+        )
+    if actual_novellas != expected_novellas:
+        failures.append(
+            "novellas.html membership mismatch: "
+            f"missing={sorted(expected_novellas - actual_novellas)}, "
+            f"unexpected={sorted(actual_novellas - expected_novellas)}"
+        )
+    if actual_novels & actual_novellas:
+        failures.append(
+            f"Novels/Novellas overlap: {sorted(actual_novels & actual_novellas)}"
+        )
+
+    print(
+        f"Checked {checked} publishable book(s): "
+        f"{len(expected_novels)} full novels, {len(expected_novellas)} shorter prose works."
+    )
     if failures:
         print("RESULT: FAIL")
         for f in failures:
