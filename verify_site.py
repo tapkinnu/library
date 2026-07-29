@@ -31,6 +31,13 @@ _heading_re = re.compile(r"^#{1,6}\s")
 _bullet_re = re.compile(r"^\s*[-*]\s")
 
 
+def _status_explicitly_incomplete(text: str) -> bool:
+    """Mirror generate.py's top-level incomplete-ledger publication guard."""
+    incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production"}
+    values = re.findall(r"(?im)^(?:phase|status):\s*[\"']?([^\n\"']+)", text)
+    return any(value.strip().lower() in incomplete for value in values)
+
+
 def _is_meta(s: str) -> bool:
     if _bullet_re.match(s) or _heading_re.match(s):
         return True
@@ -80,6 +87,9 @@ def main():
     checked = 0
     for d in books:
         slug = d.name
+        status = d / "status.yaml"
+        if status.exists() and _status_explicitly_incomplete(status.read_text(encoding="utf-8")):
+            continue
         cover = (list(d.glob("cover/*-cover.png")) or [d / "x"])[0]
         syn = d / "cover" / "synopsis.md"
         md = list(d.glob("manuscript/*.md"))

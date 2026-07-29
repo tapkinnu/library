@@ -172,6 +172,47 @@ def page_url(*parts: str) -> str:
     return BASE + "/" + "/".join(parts)
 
 
+def _adult_content_from_status(text: str) -> bool:
+    """Return True only for an explicit truthy adult_content status flag."""
+    return bool(re.search(
+        r"(?im)^adult_content:\s*(?:true|yes|1|on)\s*$", text
+    ))
+
+
+def _status_explicitly_incomplete(text: str) -> bool:
+    """Block projects whose top-level ledger explicitly says work is unfinished."""
+    incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production"}
+    values = re.findall(r"(?im)^(?:phase|status):\s*[\"']?([^\n\"']+)", text)
+    return any(value.strip().lower() in incomplete for value in values)
+
+
+def age_gate_markup() -> str:
+    """Reusable 18+ interstitial for adult sections and reader pages."""
+    return f"""<div class="age-gate" id="age-gate" role="dialog" aria-modal="true" aria-labelledby="age-gate-title">
+  <div class="age-gate-card">
+    <p class="age-gate-badge">18+</p>
+    <h1 id="age-gate-title">Adults only</h1>
+    <p>This section contains erotic illustrated fiction featuring consenting adult characters.</p>
+    <p>By continuing, you confirm that you are at least 18 years old and may legally view adult content where you live.</p>
+    <div class="age-gate-actions">
+      <button class="btn btn-primary" type="button" onclick="confirmAdultAccess()">I am 18 or older</button>
+      <a class="btn" href="{page_url('index.html')}">Return to the library</a>
+    </div>
+  </div>
+</div>
+<script>
+(function () {{
+  const gate = document.getElementById('age-gate');
+  if (!gate) return;
+  if (localStorage.getItem('tapio-adult-access') === 'confirmed') gate.hidden = true;
+  window.confirmAdultAccess = function () {{
+    localStorage.setItem('tapio-adult-access', 'confirmed');
+    gate.hidden = true;
+  }};
+}})();
+</script>"""
+
+
 def discover_books():
     books = []
     if not BOOKS_ROOT.exists():
@@ -326,6 +367,13 @@ def discover_books():
             key=lambda p: int("".join(filter(str.isdigit, p.stem)) or 0),
         )
         is_comic = len(page_imgs) > 0
+        status_path = d / "status.yaml"
+        status_text = (status_path.read_text(encoding="utf-8")
+                       if status_path.exists() else "")
+        if _status_explicitly_incomplete(status_text):
+            print(f"[skip-incomplete] {slug}: status ledger is not complete")
+            continue
+        is_adult = _adult_content_from_status(status_text)
         if not (cover and syn and mdfile):
             # Build a precise skip reason so future misnamings are loud, not silent.
             reasons = []
@@ -353,6 +401,7 @@ def discover_books():
         books.append({"slug": slug, "cover": cover, "syn": syn,
                       "md": mdfile, "pdf": pdf,
                       "pages": page_imgs, "is_comic": is_comic,
+                      "is_adult": is_adult,
                       "md_hash": digest, "wc": wc, "mtime": latest_mtime})
     return books
 
@@ -681,7 +730,7 @@ def _book_author(b: dict) -> str:
 
 
 # --- page builders ----------------------------------------------------------
-def base_html(*, title, desc, body, extra_head="", nav="all"):
+def base_html(*, title, desc, body, extra_head="", nav="all", adult=False):
     t = html.escape(title)
     d = html.escape(desc)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -689,12 +738,14 @@ def base_html(*, title, desc, body, extra_head="", nav="all"):
         ("All", page_url("index.html"), "all"),
         ("Novels", page_url("novels.html"), "novels"),
         ("Comics", page_url("comics.html"), "comics"),
+        ("After Dark · 18+", page_url("adult-comics.html"), "adult"),
     ]
     nav_html = '<nav class="site-nav" aria-label="Categories">'
     for label, href, key in nav_items:
         cls = "site-nav-link" + (" active" if key == nav else "")
         nav_html += f'<a class="{cls}" href="{href}">{label}</a>'
     nav_html += "</nav>"
+    gate = age_gate_markup() if adult else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -707,6 +758,7 @@ def base_html(*, title, desc, body, extra_head="", nav="all"):
 {extra_head}
 </head>
 <body>
+{gate}
 <header class="site-head">
   <div class="wrap site-head-inner">
     <a class="brand" href="{BASE}/">{SITE_TITLE}</a>
@@ -735,9 +787,12 @@ def card(b):
     blurb_html = md_to_html(syn["blurb"]) if syn["blurb"] else ""
     pdf_btn = (f'<a class="btn btn-sm" href="{pdf_url}">PDF</a>'
                if pdf_url else "")
-    return f"""<article class="card">
+    adult_badge = ('<span class="adult-card-badge">18+</span>'
+                   if b.get("is_adult") else "")
+    return f"""<article class="card{' adult-card' if b.get('is_adult') else ''}">
   <a class="card-cover-link" href="{book_url}">
     <img class="card-cover" src="{cover_url}" alt="Cover of {html.escape(syn['title'])}" loading="lazy">
+{adult_badge}
   </a>
   <div class="card-body">
     <p class="card-author">{html.escape(syn['author'])}</p>
@@ -751,7 +806,7 @@ def card(b):
 </article>"""
 
 
-def build_section(title, subtitle, books_list, nav):
+def build_section(title, subtitle, books_list, nav, adult=False):
     if not books_list:
         body = (f'<section class="hero"><h1>{html.escape(title)}</h1>'
                 f'<p class="lede">{html.escape(subtitle)}</p></section>\n'
@@ -762,7 +817,7 @@ def build_section(title, subtitle, books_list, nav):
                 f'<p class="lede">{html.escape(subtitle)}</p></section>\n'
                 f'<section class="grid-section">\n<div class="grid">\n'
                 f'{grid}\n</div>\n</section>')
-    return base_html(title=title, desc=subtitle, body=body, nav=nav)
+    return base_html(title=title, desc=subtitle, body=body, nav=nav, adult=adult)
 
 
 def build_home(books):
@@ -803,8 +858,12 @@ def build_book(b):
         actions.append(f'<a class="btn btn-primary" href="{read_url}">Read online</a>')
     if pdf_url:
         actions.append(f'<a class="btn" href="{pdf_url}">Download PDF</a>')
-    actions.append(f'<a class="btn btn-ghost" href="{BASE}/">All books</a>')
-    body = f"""<article class="book">
+    back_url = page_url("adult-comics.html") if b.get("is_adult") else f"{BASE}/"
+    back_label = "After Dark" if b.get("is_adult") else "All books"
+    actions.append(f'<a class="btn btn-ghost" href="{back_url}">{back_label}</a>')
+    adult_note = ("""<aside class="adult-content-note"><strong>18+ adult content.</strong> This erotic comic features consenting adult characters.</aside>"""
+                  if b.get("is_adult") else "")
+    body = f"""{adult_note}<article class="book">
   <div class="book-hero">
     <img class="book-cover" src="{cover_url}" alt="Cover of {html.escape(syn['title'])}">
     <div class="book-meta">
@@ -815,13 +874,15 @@ def build_book(b):
     </div>
   </div>
 </article>"""
-    return base_html(title=syn["title"], desc=(syn["blurb"] or TAGLINE), body=body)
+    return base_html(title=syn["title"], desc=(syn["blurb"] or TAGLINE), body=body,
+                     nav="adult" if b.get("is_adult") else "all",
+                     adult=b.get("is_adult", False))
 
 
 def build_gallery(b):
     syn = b["syn_parsed"]
     bar = f"""<header class="read-bar">
-  <a href="{BASE}/">Library</a>
+  <a href="{page_url('adult-comics.html') if b.get('is_adult') else BASE + '/'}">{'After Dark' if b.get('is_adult') else 'Library'}</a>
   <span class="read-title">{html.escape(syn['title'])}</span>
   <a href="{page_url('books', b['slug'], 'index.html')}">About</a>
   <a href="{page_url('books', b['slug'], 'read.html')}">Script</a>
@@ -843,6 +904,7 @@ def build_gallery(b):
 <link rel="stylesheet" href="{asset('style.css')}">
 </head>
 <body class="read-page">
+{age_gate_markup() if b.get('is_adult') else ''}
 {body}
 </body>
 </html>"""
@@ -857,7 +919,7 @@ def build_read(b, manuscript_html):
     gallery_link = (f'<a href="{page_url("books", b["slug"], "gallery.html")}">Comic</a>'
                     if b["is_comic"] else "")
     bar = f"""<header class="read-bar">
-  <a href="{BASE}/">Library</a>
+  <a href="{page_url('adult-comics.html') if b.get('is_adult') else BASE + '/'}">{'After Dark' if b.get('is_adult') else 'Library'}</a>
   <span class="read-title">{html.escape(syn['title'])}</span>
   {gallery_link}
   {pdf_link}
@@ -879,6 +941,7 @@ def build_read(b, manuscript_html):
 <link rel="stylesheet" href="{asset('style.css')}">
 </head>
 <body class="read-page">
+{age_gate_markup() if b.get('is_adult') else ''}
 {body}
 </body>
 </html>"""
@@ -944,14 +1007,25 @@ def main():
         parsed.append(dict(b, syn_parsed=syn, pdf_name=pdf_name))
     # Sort by most recently modified first (newest book or most recently edited at top)
     parsed.sort(key=lambda x: x.get("mtime", 0), reverse=True)
-    (OUT / "index.html").write_text(build_home(parsed), encoding="utf-8")
-    comics_list = [b for b in parsed if b["is_comic"]]
-    novels_list = [b for b in parsed if not b["is_comic"]]
+    public_list = [b for b in parsed if not b.get("is_adult")]
+    (OUT / "index.html").write_text(build_home(public_list), encoding="utf-8")
+    comics_list = [b for b in parsed if b["is_comic"] and not b.get("is_adult")]
+    novels_list = [b for b in parsed if not b["is_comic"] and not b.get("is_adult")]
+    adult_list = [b for b in parsed if b.get("is_adult")]
     (OUT / "comics.html").write_text(
         build_section("Comics", "Graphic novels and illustrated stories.", comics_list, "comics"),
         encoding="utf-8")
     (OUT / "novels.html").write_text(
         build_section("Novels", "Reasoned science fiction, set down by the Hermes writer agent.", novels_list, "novels"),
+        encoding="utf-8")
+    (OUT / "adult-comics.html").write_text(
+        build_section(
+            "After Dark",
+            "Adults-only erotic comics featuring consenting adult characters. 18+.",
+            adult_list,
+            "adult",
+            adult=True,
+        ),
         encoding="utf-8")
     for b in parsed:
         dest = OUT / "books" / b["slug"]

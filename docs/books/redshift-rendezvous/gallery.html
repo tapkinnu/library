@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Read Redshift Rendezvous · The Library of Tapio Kinnunen</title>
+<link rel="icon" href="/library/assets/favicon.svg">
+<link rel="stylesheet" href="/library/assets/style.css">
+</head>
+<body class="read-page">
+<div class="age-gate" id="age-gate" role="dialog" aria-modal="true" aria-labelledby="age-gate-title">
+  <div class="age-gate-card">
+    <p class="age-gate-badge">18+</p>
+    <h1 id="age-gate-title">Adults only</h1>
+    <p>This section contains erotic illustrated fiction featuring consenting adult characters.</p>
+    <p>By continuing, you confirm that you are at least 18 years old and may legally view adult content where you live.</p>
+    <div class="age-gate-actions">
+      <button class="btn btn-primary" type="button" onclick="confirmAdultAccess()">I am 18 or older</button>
+      <a class="btn" href="/library/index.html">Return to the library</a>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const gate = document.getElementById('age-gate');
+  if (!gate) return;
+  if (localStorage.getItem('tapio-adult-access') === 'confirmed') gate.hidden = true;
+  window.confirmAdultAccess = function () {
+    localStorage.setItem('tapio-adult-access', 'confirmed');
+    gate.hidden = true;
+  };
+})();
+</script>
+<header class="read-bar">
+  <a href="/library/adult-comics.html">After Dark</a>
+  <span class="read-title">Redshift Rendezvous</span>
+  <a href="/library/books/redshift-rendezvous/index.html">About</a>
+  <a href="/library/books/redshift-rendezvous/read.html">Script</a>
+</header>
+<main class="wrap gallery">
+<figure class="comic-page"><img src="/library/books/redshift-rendezvous/pages/page-1.png" alt="Redshift Rendezvous page 1" loading="lazy"><figcaption>Page 1</figcaption></figure>
+<figure class="comic-page"><img src="/library/books/redshift-rendezvous/pages/page-2.png" alt="Redshift Rendezvous page 2" loading="lazy"><figcaption>Page 2</figcaption></figure>
+<figure class="comic-page"><img src="/library/books/redshift-rendezvous/pages/page-3.png" alt="Redshift Rendezvous page 3" loading="lazy"><figcaption>Page 3</figcaption></figure>
+<figure class="comic-page"><img src="/library/books/redshift-rendezvous/pages/page-4.png" alt="Redshift Rendezvous page 4" loading="lazy"><figcaption>Page 4</figcaption></figure>
+</main>
+</body>
+</html>

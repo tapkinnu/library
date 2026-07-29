@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>After Dark · The Library of Tapio Kinnunen</title>
+<meta name="description" content="Adults-only erotic comics featuring consenting adult characters. 18+.">
+<link rel="icon" href="/library/assets/favicon.svg">
+<link rel="stylesheet" href="/library/assets/style.css">
+
+</head>
+<body>
+<div class="age-gate" id="age-gate" role="dialog" aria-modal="true" aria-labelledby="age-gate-title">
+  <div class="age-gate-card">
+    <p class="age-gate-badge">18+</p>
+    <h1 id="age-gate-title">Adults only</h1>
+    <p>This section contains erotic illustrated fiction featuring consenting adult characters.</p>
+    <p>By continuing, you confirm that you are at least 18 years old and may legally view adult content where you live.</p>
+    <div class="age-gate-actions">
+      <button class="btn btn-primary" type="button" onclick="confirmAdultAccess()">I am 18 or older</button>
+      <a class="btn" href="/library/index.html">Return to the library</a>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const gate = document.getElementById('age-gate');
+  if (!gate) return;
+  if (localStorage.getItem('tapio-adult-access') === 'confirmed') gate.hidden = true;
+  window.confirmAdultAccess = function () {
+    localStorage.setItem('tapio-adult-access', 'confirmed');
+    gate.hidden = true;
+  };
+})();
+</script>
+<header class="site-head">
+  <div class="wrap site-head-inner">
+    <a class="brand" href="/library/">The Library of Tapio Kinnunen</a>
+    <p class="tagline">Novels from the Hermes writer agent — reasoned science fiction.</p>
+    <nav class="site-nav" aria-label="Categories"><a class="site-nav-link" href="/library/index.html">All</a><a class="site-nav-link" href="/library/novels.html">Novels</a><a class="site-nav-link" href="/library/comics.html">Comics</a><a class="site-nav-link active" href="/library/adult-comics.html">After Dark · 18+</a></nav>
+  </div>
+</header>
+<main class="wrap">
+<section class="hero"><h1>After Dark</h1><p class="lede">Adults-only erotic comics featuring consenting adult characters. 18+.</p></section>
+<section class="grid-section">
+<div class="grid">
+<article class="card adult-card">
+  <a class="card-cover-link" href="/library/books/redshift-rendezvous/index.html">
+    <img class="card-cover" src="/library/books/redshift-rendezvous/redshift-rendezvous-cover.png" alt="Cover of Redshift Rendezvous" loading="lazy">
+<span class="adult-card-badge">18+</span>
+  </a>
+  <div class="card-body">
+    <p class="card-author">Tapio Kinnunen</p>
+    <h2 class="card-title"><a href="/library/books/redshift-rendezvous/index.html">Redshift Rendezvous</a></h2>
+    <div class="card-blurb"><p>Five years after choosing different lives, station architect Mara Voss invites shuttle pilot Elias Rhen to a glass-walled suite above Nacre's endless amber storms. The room is private, the attraction is not, and neither of them is willing to hide behind the past again. Their reunion becomes a deliberate night of honesty, desire, and the possibility of a second orbit.</p>
+<p>An adults-only romantic science-fiction comic featuring consenting characters aged 34 and 38, passionate kissing, charged bedroom imagery, and an implied sexual encounter without explicit nudity or genital detail.</p></div>
+    <div class="card-actions">
+      <a class="btn btn-primary btn-sm" href="/library/books/redshift-rendezvous/index.html">View & read</a>
+      <a class="btn btn-sm" href="/library/books/redshift-rendezvous/redshift-rendezvous.pdf">PDF</a>
+    </div>
+  </div>
+</article>
+</div>
+</section>
+</main>
+<footer class="site-foot">
+  <div class="wrap">
+    <p>The Library of Tapio Kinnunen · generated 2026-07-29 from the Hermes writer agent.</p>
+  </div>
+</footer>
+</body>
+</html>

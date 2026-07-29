@@ -65,6 +65,14 @@ except ImportError:
 
 BOOKS_ROOT = Path(os.environ.get("BOOKS_DIR") or (Path.home() / "Books"))
 
+
+def _status_explicitly_incomplete(text: str) -> bool:
+    """Mirror generate.py's top-level incomplete-ledger publication guard."""
+    incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production"}
+    values = re.findall(r"(?im)^(?:phase|status):\s*[\"']?([^\n\"']+)", text)
+    return any(value.strip().lower() in incomplete for value in values)
+
+
 # Whitelist matches: any of these substrings in the OCR text means the
 # byline is present. We use case- and punctuation-insensitive matching.
 #
@@ -281,6 +289,9 @@ def discover_publishable_books(root: Path) -> list[tuple[str, Path]]:
         if not d.is_dir() or d.name.startswith("_") or d.name.startswith("."):
             continue
         slug = d.name
+        status = d / "status.yaml"
+        if status.exists() and _status_explicitly_incomplete(status.read_text(encoding="utf-8")):
+            continue
         cover = d / "cover" / f"{slug}-cover.png"
         syn = d / "cover" / "synopsis.md"
         md = list((d / "manuscript").glob("*.md"))
