@@ -10,10 +10,12 @@ if any published book would ship with:
 Exits 0 (RESULT: PASS) only when every book passes both checks. The
 auto-publish cron uses this as a hard gate: it must NOT push unless PASS.
 
-This guarantees two durable rules:
+This guarantees three durable rules:
   1. Every published book ships a downloadable PDF.
   2. Every home-card synopsis blurb is a real narrative, not bare metadata,
      so the library reads consistently no matter how a synopsis file is shaped.
+  3. Every synopsis uses the house presentation: one title, the Tapio Kinnunen
+     byline, a professional-length blurb, then Format and Length metadata.
 """
 import re
 import sys
@@ -25,7 +27,7 @@ SITE_DOCS = Path(__file__).resolve().parent / "docs"
 # --- blurb parsing mirror of generate.parse_synopsis (kept local so this
 #     script has no import coupling to generate.py's internals) ----------
 _author_re = re.compile(r"^\*\*(.+?)\*\*$|^\*(.+?)\*$")
-_bold_meta_re = re.compile(r"^\*\*[^*]+?\*\*\s*:")
+_bold_meta_re = re.compile(r"^\*\*(?:[^*]*:\*\*|[^*]+\*\*\s*:)")
 _italic_meta_re = re.compile(r"^\*[^*].*?\*\s*$")
 _heading_re = re.compile(r"^#{1,6}\s")
 _bullet_re = re.compile(r"^\s*[-*]\s")
@@ -101,14 +103,60 @@ def main():
         if not site_pdf.exists():
             failures.append(f"{slug}: PDF missing on site ({site_pdf.name})")
             continue
-        # (2) blurb is a real narrative
-        blurb = extract_blurb(syn.read_text(encoding="utf-8"))
+        # (2) synopsis uses the canonical professional house structure.
+        syn_text = syn.read_text(encoding="utf-8")
+        nonblank = [ln.strip() for ln in syn_text.splitlines() if ln.strip()]
+        h1 = [ln for ln in nonblank if ln.startswith("# ") and not ln.startswith("## ")]
+        if len(h1) != 1 or not nonblank or nonblank[0] != h1[0]:
+            failures.append(f"{slug}: synopsis must start with exactly one '# Title' heading")
+            continue
+        if re.search(r"\bsynopsis\b", h1[0], re.I):
+            failures.append(f"{slug}: public title must not include the word 'Synopsis'")
+            continue
+        if nonblank.count("**By Tapio Kinnunen**") != 1:
+            failures.append(f"{slug}: synopsis must contain exactly one '**By Tapio Kinnunen**' byline")
+            continue
+        format_lines = [ln for ln in nonblank if ln.startswith("**Format:**")]
+        length_lines = [ln for ln in nonblank if ln.startswith("**Length:**")]
+        if len(format_lines) != 1 or len(length_lines) != 1:
+            failures.append(f"{slug}: synopsis needs exactly one Format line and one Length line")
+            continue
+        if nonblank[-2:] != [format_lines[0], length_lines[0]]:
+            failures.append(f"{slug}: synopsis must end with Format followed by Length")
+            continue
+        allowed_formats = {
+            "**Format:** Novel", "**Format:** Novella", "**Format:** Novelette",
+            "**Format:** Graphic novel", "**Format:** Adults-only graphic novel",
+            "**Format:** Adults-only comic",
+        }
+        if format_lines[0] not in allowed_formats:
+            failures.append(f"{slug}: nonstandard Format value: {format_lines[0]!r}")
+            continue
+        legacy_meta = re.findall(
+            r"(?im)^\s*(?:[-*]\s*)?\*\*(?:Author|Genre|Themes?|Tags?|Structure|Setting|Leads?|The Warden):\*\*",
+            syn_text,
+        )
+        if legacy_meta:
+            failures.append(f"{slug}: legacy synopsis metadata remains; use only Format and Length")
+            continue
+
+        # (3) blurb is a substantial but concise narrative.
+        blurb = extract_blurb(syn_text)
         if not blurb:
             failures.append(f"{slug}: synopsis blurb is EMPTY (likely meta-first)")
             continue
         first = blurb.splitlines()[0].strip()
         if _bold_meta_re.match(first) or first.startswith("- ") or _heading_re.match(first):
             failures.append(f"{slug}: blurb starts with meta, not narrative: {first[:50]!r}")
+            continue
+        blurb_words = len(re.findall(r"\b[\w’'-]+\b", blurb))
+        is_comic = any((d / "pages").glob("page-*.png"))
+        min_words = 55 if is_comic else 85
+        if blurb_words < min_words or blurb_words > 240:
+            failures.append(
+                f"{slug}: blurb length {blurb_words} words outside professional band "
+                f"{min_words}-240"
+            )
     print(f"Checked {checked} publishable book(s).")
     if failures:
         print("RESULT: FAIL")

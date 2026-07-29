@@ -548,7 +548,9 @@ def parse_synopsis(path: Path):
 # heading, or a trailing italic credit (e.g. "*71,000 words · by ...*").
 # The blurb is the contiguous narrative block. If a "## Synopsis" (or
 # similar) restart heading appears, the narrative starts AFTER it.
-_BLURB_BOLD_META_RE = re.compile(r"^\*\*[^*]+\*\*\s*:")
+# Canonical Markdown is ``**Label:** value`` (colon inside bold), while a
+# few legacy files used ``**Label**: value``. Recognize both forms.
+_BLURB_BOLD_META_RE = re.compile(r"^\*\*(?:[^*]*:\*\*|[^*]+\*\*\s*:)")
 _BLURB_ITALIC_META_RE = re.compile(r"^\*[^*].*?\*\s*$")
 _BLURB_HEADING_RE = re.compile(r"^#{1,6}\s")
 _BLURB_BULLET_RE = re.compile(r"^\s*[-*]\s")
@@ -601,114 +603,87 @@ def extract_blurb_from_lines(lines, title_idx) -> str:
 
 
 def heal_synopsis(syn_path: Path, *, title: str, author: str,
-                  wc: int, pages: int = 0) -> bool:
-    """Normalize a synopsis.md so the site generator + verify_site.py can
-    parse it. Idempotent.
+                  wc: int, pages: int = 0, is_adult: bool = False) -> bool:
+    """Canonicalize the public synopsis structure while preserving its blurb.
 
-    - Adds a `# <Title>` heading if missing (or repairs one without `# `).
-    - Adds a `By <author>` byline if missing.
-    - Adds a `## Synopsis` heading + Length meta block if the blurb
-      would otherwise be empty after meta-stripping.
-    - Updates the **Length:** line.
-
-    Returns True if any change was made.
+    Every published synopsis uses the same reader-facing order:
+    title, house byline, narrative blurb, format, and length.  The creative
+    blurb is never generated here; an absent/weak blurb is left as a visible
+    placeholder so ``verify_site.py`` blocks publication instead of shipping
+    generic marketing copy.
     """
     raw = syn_path.read_text(encoding="utf-8")
     lines = raw.splitlines()
-    changed = False
-
-    # 1. Ensure # Title heading exists on the first non-blank line.
-    has_title = any(ln.startswith("# ") for ln in lines)
-    if not has_title:
-        # Insert the title at the top.
-        lines = [f"# {title}", ""] + lines
-        changed = True
-
-    # Recompute indices after potential insertion.
-    title_idx = None
-    for i, ln in enumerate(lines):
-        if ln.startswith("# "):
-            title_idx = i
-            break
-
-    # 2. Ensure a byline (`By <author>` or `*By <author>*`) exists below title.
-    body_slice = lines[title_idx + 1:] if title_idx is not None else lines
-    has_byline = any(_BLURB_BY_RE.match(ln.strip()) for ln in body_slice) or \
-                 any(_BLURB_AUTHOR_BOLD_RE.match(ln.strip()) for ln in body_slice)
-    if not has_byline:
-        insert_at = (title_idx + 1) if title_idx is not None else 0
-        lines = lines[:insert_at] + [f"By {author}", ""] + lines[insert_at:]
-        changed = True
-
-    # 3. Recompute after byline insertion, then check the blurb.
-    title_idx = None
-    for i, ln in enumerate(lines):
-        if ln.startswith("# "):
-            title_idx = i
-            break
+    title_idx = next((i for i, ln in enumerate(lines) if ln.startswith("# ")), None)
     blurb = extract_blurb_from_lines(lines, title_idx)
+
+    # Legacy metadata-first files can hide a later narrative block from the
+    # contiguous blurb parser. Recover prose paragraphs without preserving old
+    # Author/Genre/Tags/Structure blocks or duplicate credits.
     if not blurb:
-        # No narrative content found: synthesize a brief blurb from the file.
-        # If the file has ANY non-meta paragraph, promote it. Otherwise
-        # insert a placeholder line so the book is still publishable.
-        rest = lines[title_idx + 1:] if title_idx is not None else lines
-        narrative = []
-        for ln in rest:
-            s = ln.strip()
-            if not s or _is_blurb_meta(s) or _BLURB_AUTHOR_BOLD_RE.match(s) or _BLURB_BY_RE.match(s):
+        paragraphs = re.split(r"\n\s*\n", raw)
+        candidates = []
+        for para in paragraphs:
+            s = para.strip()
+            if not s or s.startswith("#") or _is_blurb_meta(s):
                 continue
-            narrative.append(ln)
-            if sum(len(x) for x in narrative) >= 200:
-                break
-        if not narrative:
-            narrative = [
-                f"A complete novel by {author}.",
-                "",
-                "*(A synopsis blurb will be regenerated on the next publish cycle.)*"
-            ]
-        # Add a ## Synopsis heading above the narrative.
-        lines = lines + ["", "## Synopsis", ""] + narrative
-        changed = True
+            if _BLURB_AUTHOR_BOLD_RE.match(s) or _BLURB_BY_RE.match(s):
+                continue
+            if re.match(r"(?i)^(?:by|author|genre|themes?|tags?|length|format|structure|setting)\b", s):
+                continue
+            candidates.append(s)
+        blurb = "\n\n".join(candidates)
 
-    # 4. Reconcile the **Length:** line.
-    new_lines = []
-    inserted_length = False
-    pat = re.compile(r"^(?P<pre>[\s\*\-\>]*)(\*\*(?i:Length):\*\*\s*).+")
+    if not blurb:
+        blurb = "Synopsis forthcoming."
+
+    # The public house byline is intentionally fixed even when a stale project
+    # ledger still carries an older author field.
+    byline = "**By Tapio Kinnunen**"
     if pages > 0:
-        new_val = f"**Length:** {pages} pages"
+        format_name = "Adults-only graphic novel" if is_adult else "Graphic novel"
+        length = f"{pages} pages"
     else:
-        new_val = f"**Length:** {wc:,} words"
-    for ln in lines:
-        m = pat.match(ln)
-        if m:
-            new_ln = f"{m.group('pre')}{new_val}"
-            if ln != new_ln:
-                changed = True
-            new_lines.append(new_ln)
-            inserted_length = True
-        else:
-            new_lines.append(ln)
-    if not inserted_length:
-        # Append at end with leading blank line.
-        new_lines += ["", new_val]
-        changed = True
+        format_name = "Novelette" if wc < 17_500 else "Novella" if wc < 40_000 else "Novel"
+        length = f"{wc:,} words"
 
-    if changed:
-        syn_path.write_text("\n".join(new_lines).rstrip() + "\n",
-                            encoding="utf-8")
-    return changed
+    canonical = (
+        f"# {title}\n\n"
+        f"{byline}\n\n"
+        f"{blurb.strip()}\n\n"
+        f"**Format:** {format_name}\n"
+        f"**Length:** {length}\n"
+    )
+    if canonical == raw:
+        return False
+    syn_path.write_text(canonical, encoding="utf-8")
+    return True
 
 
 def _book_title(b: dict) -> str:
-    """Read the book title from status.yaml (preferred) or fall back to
-    a slug-derived default. Used by heal_synopsis."""
+    """Read the public title without mistaking chapter-state titles for it.
+
+    The synopsis H1 is authoritative.  Some status ledgers contain many
+    nested ``title:`` keys for chapters, so scanning YAML lines for the first
+    key can silently rename a book (for example, *The Hollow Light* became
+    "The Budget").  Consult the status ledger only when no synopsis H1 exists.
+    """
+    syn = b.get("syn")
+    if syn and Path(syn).exists():
+        try:
+            for ln in Path(syn).read_text(encoding="utf-8").splitlines():
+                if ln.startswith("# "):
+                    return re.split(r"\s*[—–-]\s*Synopsis\b", ln[2:].strip(), flags=re.I)[0].strip()
+        except Exception:
+            pass
     status = b["md"].parent.parent / "status.yaml"
     if status.exists():
         try:
             txt = status.read_text(encoding="utf-8")
             for ln in txt.splitlines():
-                if ln.startswith("title:"):
-                    return ln.split(":", 1)[1].strip().strip('"').strip("'")
+                stripped = ln.strip()
+                if stripped.startswith("title:"):
+                    return stripped.split(":", 1)[1].strip().strip('"').strip("'")
         except Exception:
             pass
     return b["slug"].replace("-", " ").title()
@@ -722,8 +697,9 @@ def _book_author(b: dict) -> str:
         try:
             txt = status.read_text(encoding="utf-8")
             for ln in txt.splitlines():
-                if ln.startswith("author:"):
-                    return ln.split(":", 1)[1].strip().strip('"').strip("'")
+                stripped = ln.strip()
+                if stripped.startswith("author:"):
+                    return stripped.split(":", 1)[1].strip().strip('"').strip("'")
         except Exception:
             pass
     return "Tapio Kinnunen"
@@ -993,6 +969,7 @@ def main():
             author=_book_author(b),
             wc=b["wc"],
             pages=len(b["pages"]),
+            is_adult=b.get("is_adult", False),
         )
         if healed:
             print(f"[heal] {slug}: synopsis normalized (title/byline/blurb/Length)")
