@@ -17,9 +17,11 @@ class AdultSectionTests(unittest.TestCase):
         self.assertTrue(generate._status_explicitly_incomplete("phase: repair\n"))
         self.assertTrue(generate._status_explicitly_incomplete("status: IN_PROGRESS\n"))
         self.assertTrue(generate._status_explicitly_incomplete("phase: drafting\n"))
+        self.assertTrue(generate._status_explicitly_incomplete("phase: withdrawn\n"))
         self.assertFalse(generate._status_explicitly_incomplete("phase: complete\nstatus: COMPLETE\n"))
         self.assertFalse(generate._status_explicitly_incomplete("  status: drafting\n"))
         self.assertTrue(verify_site._status_explicitly_incomplete("phase: repair\n"))
+        self.assertTrue(verify_site._status_explicitly_incomplete("status: WITHDRAWN\n"))
         self.assertFalse(verify_site._status_explicitly_incomplete("phase: complete\n"))
 
     def test_nav_and_gate_on_adult_section(self):

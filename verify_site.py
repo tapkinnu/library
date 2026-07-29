@@ -32,8 +32,8 @@ _bullet_re = re.compile(r"^\s*[-*]\s")
 
 
 def _status_explicitly_incomplete(text: str) -> bool:
-    """Mirror generate.py's top-level incomplete-ledger publication guard."""
-    incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production"}
+    """Mirror generate.py's top-level excluded-ledger publication guard."""
+    incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production", "withdrawn"}
     values = re.findall(r"(?im)^(?:phase|status):\s*[\"']?([^\n\"']+)", text)
     return any(value.strip().lower() in incomplete for value in values)
 

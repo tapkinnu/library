@@ -180,8 +180,8 @@ def _adult_content_from_status(text: str) -> bool:
 
 
 def _status_explicitly_incomplete(text: str) -> bool:
-    """Block projects whose top-level ledger explicitly says work is unfinished."""
-    incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production"}
+    """Block projects whose top-level ledger says unfinished or withdrawn."""
+    incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production", "withdrawn"}
     values = re.findall(r"(?im)^(?:phase|status):\s*[\"']?([^\n\"']+)", text)
     return any(value.strip().lower() in incomplete for value in values)
 
