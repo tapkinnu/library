@@ -45,6 +45,22 @@ def _adult_content_from_status(text: str) -> bool:
     return bool(re.search(r"(?im)^adult_content:\s*(?:true|yes|1|on)\s*$", text))
 
 
+def _genre_from_status(text: str) -> str:
+    """Mirror generate.py's top-level genre classifier."""
+    values = re.findall(
+        r"(?im)^(?:genre|category):\s*[\"']?([^\n\"']+)", text
+    )
+    labels = " ".join(values).lower()
+    if "fantasy" in labels:
+        return "fantasy"
+    if (re.search(r"\bscience[ -]?fiction\b", labels)
+            or re.search(r"\bsci[ -]?fi\b", labels)
+            or re.search(r"\bhard\s+sf\b", labels)
+            or re.search(r"\bsf\b", labels)):
+        return "science-fiction"
+    return "science-fiction"
+
+
 def _linked_slugs(page: Path) -> set[str]:
     if not page.exists():
         return set()
@@ -101,6 +117,8 @@ def main():
     failures = []
     expected_novels = set()
     expected_novellas = set()
+    expected_fantasy = set()
+    expected_science_fiction = set()
     books = sorted(p for p in BOOKS_ROOT.iterdir() if p.is_dir())
     checked = 0
     for d in books:
@@ -117,6 +135,12 @@ def main():
         checked += 1
         is_comic = any((d / "pages").glob("page-*.png"))
         is_adult = _adult_content_from_status(status_text)
+        genre = _genre_from_status(status_text)
+        if not is_adult:
+            if genre == "fantasy":
+                expected_fantasy.add(slug)
+            else:
+                expected_science_fiction.add(slug)
         if not is_comic and not is_adult:
             canonical_md = d / "manuscript" / f"{slug}.md"
             md_path = canonical_md if canonical_md.exists() else md[0]
@@ -203,9 +227,31 @@ def main():
             f"Novels/Novellas overlap: {sorted(actual_novels & actual_novellas)}"
         )
 
+    # (5) Genre pages must partition all public books, independent of format.
+    actual_fantasy = _linked_slugs(SITE_DOCS / "fantasy.html")
+    actual_science_fiction = _linked_slugs(SITE_DOCS / "science-fiction.html")
+    if actual_fantasy != expected_fantasy:
+        failures.append(
+            "fantasy.html membership mismatch: "
+            f"missing={sorted(expected_fantasy - actual_fantasy)}, "
+            f"unexpected={sorted(actual_fantasy - expected_fantasy)}"
+        )
+    if actual_science_fiction != expected_science_fiction:
+        failures.append(
+            "science-fiction.html membership mismatch: "
+            f"missing={sorted(expected_science_fiction - actual_science_fiction)}, "
+            f"unexpected={sorted(actual_science_fiction - expected_science_fiction)}"
+        )
+    if actual_fantasy & actual_science_fiction:
+        failures.append(
+            "Fantasy/Science Fiction overlap: "
+            f"{sorted(actual_fantasy & actual_science_fiction)}"
+        )
+
     print(
         f"Checked {checked} publishable book(s): "
-        f"{len(expected_novels)} full novels, {len(expected_novellas)} shorter prose works."
+        f"{len(expected_novels)} full novels, {len(expected_novellas)} shorter prose works; "
+        f"{len(expected_fantasy)} fantasy and {len(expected_science_fiction)} science-fiction titles."
     )
     if failures:
         print("RESULT: FAIL")

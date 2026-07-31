@@ -154,7 +154,7 @@ OUT = ROOT / "docs"
 SRC = ROOT / "src"
 
 SITE_TITLE = "The Library of Tapio Kinnunen"
-TAGLINE = "Novels from the Hermes writer agent — reasoned science fiction."
+TAGLINE = "Fantasy and science fiction from the Hermes writer agent."
 # SFWA's conventional lower bound for a novel is 40,000 words. Shorter
 # prose works belong on the Novellas page (including novelettes).
 NOVEL_MIN_WORDS = 40_000
@@ -187,6 +187,29 @@ def _status_explicitly_incomplete(text: str) -> bool:
     incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production", "withdrawn"}
     values = re.findall(r"(?im)^(?:phase|status):\s*[\"']?([^\n\"']+)", text)
     return any(value.strip().lower() in incomplete for value in values)
+
+
+def _genre_from_status(text: str) -> str:
+    """Classify a book from top-level status genre/category metadata.
+
+    The historical library predates consistent genre fields and consisted of
+    science fiction, so an unlabelled legacy book defaults to science fiction.
+    New fantasy projects carry an explicit ``category: ... fantasy`` field.
+    Only top-level genre/category lines are considered so unrelated ledger
+    fields such as ``last_fantasy_subgenre`` cannot misclassify a book.
+    """
+    values = re.findall(
+        r"(?im)^(?:genre|category):\s*[\"']?([^\n\"']+)", text
+    )
+    labels = " ".join(values).lower()
+    if "fantasy" in labels:
+        return "fantasy"
+    if (re.search(r"\bscience[ -]?fiction\b", labels)
+            or re.search(r"\bsci[ -]?fi\b", labels)
+            or re.search(r"\bhard\s+sf\b", labels)
+            or re.search(r"\bsf\b", labels)):
+        return "science-fiction"
+    return "science-fiction"
 
 
 def age_gate_markup() -> str:
@@ -377,6 +400,7 @@ def discover_books():
             print(f"[skip-incomplete] {slug}: status ledger is not complete")
             continue
         is_adult = _adult_content_from_status(status_text)
+        genre = _genre_from_status(status_text)
         if not (cover and syn and mdfile):
             # Build a precise skip reason so future misnamings are loud, not silent.
             reasons = []
@@ -405,6 +429,7 @@ def discover_books():
                       "md": mdfile, "pdf": pdf,
                       "pages": page_imgs, "is_comic": is_comic,
                       "is_adult": is_adult,
+                      "genre": genre,
                       "md_hash": digest, "wc": wc, "mtime": latest_mtime})
     return books
 
@@ -715,6 +740,8 @@ def base_html(*, title, desc, body, extra_head="", nav="all", adult=False):
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     nav_items = [
         ("All", page_url("index.html"), "all"),
+        ("Fantasy", page_url("fantasy.html"), "fantasy"),
+        ("Sci-Fi", page_url("science-fiction.html"), "science-fiction"),
         ("Novels", page_url("novels.html"), "novels"),
         ("Novellas", page_url("novellas.html"), "novellas"),
         ("Comics", page_url("comics.html"), "comics"),
@@ -806,16 +833,16 @@ def category_for_book(b):
         return page_url("adult-comics.html"), "After Dark", "adult"
     if b.get("is_comic"):
         return page_url("comics.html"), "Comics", "comics"
-    if b.get("is_novella"):
-        return page_url("novellas.html"), "Novellas", "novellas"
-    return page_url("novels.html"), "Novels", "novels"
+    if b.get("genre") == "fantasy":
+        return page_url("fantasy.html"), "Fantasy", "fantasy"
+    return page_url("science-fiction.html"), "Science Fiction", "science-fiction"
 
 
 def build_home(books):
     if not books:
         return base_html(title="Books", desc=TAGLINE,
                          body='<section class="hero"><h1>Books by Tapio Kinnunen</h1>'
-                              '<p class="lede">Reasoned science fiction, set down by '
+                              '<p class="lede">Fantasy and science fiction, set down by '
                               'the Hermes writer agent.</p></section>\n'
                               '<p class="empty">No books published yet.</p>')
 
@@ -823,7 +850,7 @@ def build_home(books):
     grid = "\n".join(card(b) for b in books)
     body = f"""<section class="hero">
   <h1>Books by Tapio Kinnunen</h1>
-  <p class="lede">Reasoned science fiction, set down by the Hermes writer agent. Read online or download the PDF.</p>
+  <p class="lede">Fantasy and science fiction, set down by the Hermes writer agent. Read online or download the PDF.</p>
 </section>
 <section class="grid-section">
 <div class="grid">
@@ -1008,17 +1035,37 @@ def main():
     public_list = [b for b in parsed if not b.get("is_adult")]
     (OUT / "index.html").write_text(build_home(public_list), encoding="utf-8")
     comics_list = [b for b in parsed if b["is_comic"] and not b.get("is_adult")]
+    fantasy_list = [b for b in parsed
+                    if b["genre"] == "fantasy" and not b.get("is_adult")]
+    science_fiction_list = [b for b in parsed
+                            if b["genre"] == "science-fiction" and not b.get("is_adult")]
     novels_list = [b for b in parsed
                    if not b["is_comic"] and not b["is_novella"] and not b.get("is_adult")]
     novellas_list = [b for b in parsed if b["is_novella"] and not b.get("is_adult")]
     adult_list = [b for b in parsed if b.get("is_adult")]
+    (OUT / "fantasy.html").write_text(
+        build_section(
+            "Fantasy",
+            "Adult fantasy shaped by magic, myth, strange cities, and costly wonders.",
+            fantasy_list,
+            "fantasy",
+        ),
+        encoding="utf-8")
+    (OUT / "science-fiction.html").write_text(
+        build_section(
+            "Science Fiction",
+            "Reasoned science fiction about distant worlds, altered societies, and difficult futures.",
+            science_fiction_list,
+            "science-fiction",
+        ),
+        encoding="utf-8")
     (OUT / "comics.html").write_text(
         build_section("Comics", "Graphic novels and illustrated stories.", comics_list, "comics"),
         encoding="utf-8")
     (OUT / "novels.html").write_text(
         build_section(
             "Novels",
-            "Full-length science-fiction novels of 40,000 words or more.",
+            "Full-length fantasy and science-fiction novels of 40,000 words or more.",
             novels_list,
             "novels",
         ),
@@ -1026,7 +1073,7 @@ def main():
     (OUT / "novellas.html").write_text(
         build_section(
             "Novellas",
-            "Shorter science fiction under 40,000 words, including novellas and novelettes.",
+            "Shorter fantasy and science fiction under 40,000 words, including novellas and novelettes.",
             novellas_list,
             "novellas",
         ),
