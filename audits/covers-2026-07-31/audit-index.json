@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "audit_at": "2026-07-31T23:26:26+03:00",
+  "inspected_with": "vision_analyze",
+  "total_existing_canonical_covers": 54,
+  "publishable_hash_bound_receipts": 53,
+  "read_only_covers": [
+    {
+      "slug": "no-common-body",
+      "cover_sha256": "955cabfa791104a204c9e6e3b236af767b02bb06258665907882b91f6fd7aa7f",
+      "verdict": "PASS",
+      "checks": {
+        "important_subjects_unobscured": true,
+        "title_readable": true,
+        "byline_readable": true,
+        "safe_margins": true,
+        "no_rendering_artifacts": true,
+        "professional_composition": true
+      },
+      "notes": "Exact read-only canonical cover inspected; central receipt used because its source cover directory is intentionally non-writable."
+    }
+  ]
+}

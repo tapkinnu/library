@@ -976,6 +976,20 @@ def main():
     (OUT / ".nojekyll").write_text("")
     books = discover_books()
 
+    # Mandatory machine-vision cover gate. Every exact cover hash must have a
+    # PASS receipt produced after inspection with Hermes' vision_analyze tool.
+    # A regenerated or re-typeset cover invalidates its receipt automatically.
+    from tools.cover_vision_gate import verify_entries as verify_cover_vision_entries
+    vision_errors = verify_cover_vision_entries(
+        (b["slug"], Path(b["cover"])) for b in books
+    )
+    if vision_errors:
+        details = "\n".join(f"  - {error}" for error in vision_errors)
+        raise SystemExit(
+            "BLOCKED: mandatory cover vision audit failed; site was not rebuilt:\n" + details
+        )
+    print(f"[vision-pass] {len(books)} exact cover hash(es) approved")
+
     # --- guarantee every book ships with a PDF ---------------------------
     # If a book has no manuscript/<slug>.pdf yet, build it now (via the book's
     # own build_pdf.py, or the built-in fallback). This enforces the rule that

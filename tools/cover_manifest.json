@@ -16,5 +16,9 @@
   "the-quiet-cartographers": {"art": "artwork_raw.png", "title": "THE QUIET CARTOGRAPHERS", "title_font": "ubuntu", "title_y": 0.16, "outputs": ["the-quiet-cartographers-cover.png"]},
   "the-severance-compact": {"art": "the-severance-compact-raw.png", "title": "THE SEVERANCE COMPACT", "title_font": "liberation-sans", "title_y": 0.16, "kicker": "A NOVEL OF THE POST-COMPACT ERA", "outputs": ["the-severance-compact-cover.png"]},
   "the-tithing-of-light": {"art": "artwork.png", "title": "THE TITHING OF LIGHT", "title_font": "dejavu-serif", "title_y": 0.16, "outputs": ["the-tithing-of-light-cover.png"]},
-  "tidewright": {"art": "art-tidewright.png", "title": "THE TIDEWRIGHT'S COMPASS", "title_font": "dejavu-serif", "title_y": 0.16, "outputs": ["tidewright-cover.png", "the-tidewrights-compass-cover.png"]}
+  "tidewright": {"art": "art-tidewright.png", "title": "THE TIDEWRIGHT'S COMPASS", "title_font": "dejavu-serif", "title_y": 0.16, "outputs": ["tidewright-cover.png", "the-tidewrights-compass-cover.png"]},
+  "a-planet-made-of-forecasts": {"art": "a-planet-made-of-forecasts-art.png", "title": "A PLANET MADE|OF FORECASTS", "title_font": "dejavu-serif", "title_y": 0.14, "outputs": ["a-planet-made-of-forecasts-cover.png"]},
+  "the-city-that-learned-to-refuse": {"art": "the-city-that-learned-to-refuse-raw.png", "title": "THE CITY THAT|LEARNED TO REFUSE", "title_font": "dejavu-serif", "title_y": 0.12, "outputs": ["the-city-that-learned-to-refuse-cover.png"]},
+  "the-migration-of-burning-ships": {"art": "artwork_raw.png", "title": "THE MIGRATION OF|BURNING SHIPS", "title_font": "dejavu-serif", "title_y": 0.10, "outputs": ["the-migration-of-burning-ships-cover.png"]},
+  "the-slowlight-accord": {"art": "art_raw_v3.png", "title": "THE SLOWLIGHT|ACCORD", "title_font": "dejavu-serif", "title_y": 0.20, "outputs": ["the-slowlight-accord-cover.png"]}
 }
