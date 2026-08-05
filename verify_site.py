@@ -14,7 +14,7 @@ This guarantees three durable rules:
   1. Every published book ships a downloadable PDF.
   2. Every home-card synopsis blurb is a real narrative, not bare metadata,
      so the library reads consistently no matter how a synopsis file is shaped.
-  3. Every synopsis uses the house presentation: one title, the Tapio Kinnunen
+  3. Every synopsis uses the house presentation: one title, the T. K. Arven
      byline, a professional-length blurb, then Format and Length metadata.
 """
 import re
@@ -76,8 +76,8 @@ def _is_meta(s: str) -> bool:
     if _bold_meta_re.match(s):
         return True
     if _italic_meta_re.match(s) and ("words" in s.lower()
-                                     or "by tapio" in s.lower()
-                                     or "by adrian" in s.lower()):
+                                     or "by t. k. arven" in s.lower()
+                                     or "by arven" in s.lower()):
         return True
     return False
 
@@ -164,8 +164,8 @@ def main():
         if re.search(r"\bsynopsis\b", h1[0], re.I):
             failures.append(f"{slug}: public title must not include the word 'Synopsis'")
             continue
-        if nonblank.count("**By Tapio Kinnunen**") != 1:
-            failures.append(f"{slug}: synopsis must contain exactly one '**By Tapio Kinnunen**' byline")
+        if nonblank.count("**By T. K. Arven**") != 1:
+            failures.append(f"{slug}: synopsis must contain exactly one '**By T. K. Arven**' byline")
             continue
         format_lines = [ln for ln in nonblank if ln.startswith("**Format:**")]
         length_lines = [ln for ln in nonblank if ln.startswith("**Length:**")]

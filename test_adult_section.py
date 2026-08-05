@@ -42,7 +42,7 @@ class AdultSectionTests(unittest.TestCase):
             "slug": "sample-adult-comic",
             "syn_parsed": {
                 "title": "Sample",
-                "author": "Tapio Kinnunen",
+                "author": "T. K. Arven",
                 "body": "Adult blurb.",
                 "blurb": "Adult blurb.",
             },

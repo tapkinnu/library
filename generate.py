@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the static Tapio Kinnunen book-library site (GitHub Pages ready).
+"""Generate the static T. K. Arven book-library site (GitHub Pages ready).
 
 Scans ~/Books/*/ for finished books and emits a static site into ./docs.
 
@@ -153,7 +153,7 @@ BOOKS_ROOT = Path(os.environ.get("BOOKS_DIR", Path.home() / "Books")).expanduser
 OUT = ROOT / "docs"
 SRC = ROOT / "src"
 
-SITE_TITLE = "The Library of Tapio Kinnunen"
+SITE_TITLE = "The Library of T. K. Arven"
 TAGLINE = "Fantasy and science fiction from the Hermes writer agent."
 # SFWA's conventional lower bound for a novel is 40,000 words. Shorter
 # prose works belong on the Novellas page (including novelettes).
@@ -230,9 +230,9 @@ def age_gate_markup() -> str:
 (function () {{
   const gate = document.getElementById('age-gate');
   if (!gate) return;
-  if (localStorage.getItem('tapio-adult-access') === 'confirmed') gate.hidden = true;
+  if (localStorage.getItem('tk-arven-adult-access') === 'confirmed') gate.hidden = true;
   window.confirmAdultAccess = function () {{
-    localStorage.setItem('tapio-adult-access', 'confirmed');
+    localStorage.setItem('tk-arven-adult-access', 'confirmed');
     gate.hidden = true;
   }};
 }})();
@@ -565,7 +565,7 @@ def parse_synopsis(path: Path):
     if author and author.lower().startswith("by "):
         author_name = author[3:].strip()
     else:
-        author_name = author or "Tapio Kinnunen"
+        author_name = author or "T. K. Arven"
     return {"title": title or path.parent.parent.name,
             "author": author_name, "body": "\n".join(body_lines).strip(),
             "blurb": blurb}
@@ -592,8 +592,8 @@ def _is_blurb_meta(s: str) -> bool:
     if _BLURB_BOLD_META_RE.match(s):
         return True
     if _BLURB_ITALIC_META_RE.match(s) and ("words" in s.lower()
-                                           or "by tapio" in s.lower()
-                                           or "by adrian" in s.lower()):
+                                           or "by t. k. arven" in s.lower()
+                                           or "by arven" in s.lower()):
         return True
     return False
 
@@ -667,7 +667,7 @@ def heal_synopsis(syn_path: Path, *, title: str, author: str,
 
     # The public house byline is intentionally fixed even when a stale project
     # ledger still carries an older author field.
-    byline = "**By Tapio Kinnunen**"
+    byline = "**By T. K. Arven**"
     if pages > 0:
         format_name = "Adults-only graphic novel" if is_adult else "Graphic novel"
         length = f"{pages} pages"
@@ -730,7 +730,7 @@ def _book_author(b: dict) -> str:
                     return stripped.split(":", 1)[1].strip().strip('"').strip("'")
         except Exception:
             pass
-    return "Tapio Kinnunen"
+    return "T. K. Arven"
 
 
 # --- page builders ----------------------------------------------------------
@@ -841,7 +841,7 @@ def category_for_book(b):
 def build_home(books):
     if not books:
         return base_html(title="Books", desc=TAGLINE,
-                         body='<section class="hero"><h1>Books by Tapio Kinnunen</h1>'
+                         body='<section class="hero"><h1>Books by T. K. Arven</h1>'
                               '<p class="lede">Fantasy and science fiction, set down by '
                               'the Hermes writer agent.</p></section>\n'
                               '<p class="empty">No books published yet.</p>')
@@ -849,7 +849,7 @@ def build_home(books):
     # Single unified grid: all books (comics + novels) sorted newest first
     grid = "\n".join(card(b) for b in books)
     body = f"""<section class="hero">
-  <h1>Books by Tapio Kinnunen</h1>
+  <h1>Books by T. K. Arven</h1>
   <p class="lede">Fantasy and science fiction, set down by the Hermes writer agent. Read online or download the PDF.</p>
 </section>
 <section class="grid-section">

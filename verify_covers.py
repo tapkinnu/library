@@ -6,14 +6,14 @@ Why this exists
 Books in ~/Books/<slug>/cover/ sometimes ship ONLY the raw AI-art PNG
 (cover/art.png, cover/artwork*.png, etc.) without title/byline text burned
 in. The `cover/make_cover.py` step that normally runs Pillow + TTF fonts to
-draw "THE TITLE" and "WRITTEN BY TAPIO KINNUNEN" on top of the art may
+draw "THE TITLE" and "WRITTEN BY T. K. ARVEN" on top of the art may
 have been skipped, or its output was lost, or `generate.py`'s
 auto-heal silently picked the raw-art file. Result: a text-less cover
 ships to the live site.
 
 This script is the durable safety net: it OCRs every published cover
 with Tesseract and flags any image where the recognized text is empty
-or does not mention the author byline `Kinnunen`.
+or does not mention the author byline `Arven`.
 
 Why OCR (and not a pixel heuristic)
 -----------------------------------
@@ -24,13 +24,12 @@ should sit. Tesseract ignores scenery and only returns glyph-level text.
 A single OCR call per cover is the cheapest signal we have that the
 cover actually has burned-in title typography.
 
-Why "Kinnunen" instead of "TAPIO KINNUNEN"
--------------------------------------------
-The byline is always uppercased into either `BY TAPIO KINNUNEN` or
-`WRITTEN BY TAPIO KINNUNEN`. OCR often reads `KINNUNEN` even when the
-`TAPIO` glyph splits or ligatures with neighboring letters. We accept
-either form, then report the full extracted text so a human can inspect
-edge cases.
+Why "Arven" instead of the full punctuated byline
+--------------------------------------------------
+The byline is uppercased as `T. K. ARVEN` (sometimes prefixed by `BY` or
+`WRITTEN BY`). OCR may drop periods or insert kerning gaps inside `ARVEN`.
+The gate accepts the exact surname and a narrow fragmented form, then reports
+the extracted text so a human can inspect edge cases.
 
 Exit codes
 ----------
@@ -76,44 +75,19 @@ def _status_explicitly_incomplete(text: str) -> bool:
 # Whitelist matches: any of these substrings in the OCR text means the
 # byline is present. We use case- and punctuation-insensitive matching.
 #
-# IMPORTANT: Tesseract frequently splits "KINNUNEN" across tiny kerning
-# gaps, ligatures, or band boundaries — it returns "KIN" + "NUNEN" with
-# whitespace/punctuation between them. We also accept fragmented
-# `WRITTEN BY ... TAPIO` tokens (OCR sometimes reads WRITTEN as WEN and
-# TAPIO as TARIO / TAPO / TAPIO) because the byline in our covers is
-# ALWAYS preceded by WRITTEN BY or BY, and a fragment sequence of
-# WRITTEN* * BY* * TAPIO* within ~20 chars is unambiguous.
-_BYLINE_MARKERS = ("kinnunen", "tapio")
-# Pattern that survives OCR splits: "KIN" then up to 12 chars of
-# non-letters then a tail that looks like "NUNEN" (allowing for the
-# common OCR misread where the first `N` of NUNEN is dropped or merged
-# into the preceding word — e.g. "DIO.KIN AIL INEN"). Tails accepted:
-#   NUNEN, NUNEN, UNEN, INEN  (any 4-5 char suffix starting with N or U)
-# Case-insensitive. We deliberately allow a 12-char gap because the
-# observed failure is "DIO.KIN AIL INEN" — KIN glued to a misread
-# TAPIO and NUNEN glued to a following word.
-_KINNUNEN_SPLIT_RE = re.compile(
-    r"KIN[^A-Z]{0,12}(?:NUNEN|NUNEN|UNEN|INEN|NINEN)\b",
-    re.IGNORECASE,
-)
-# Looser fallback: just look for either `KIN` or `NUNEN` (or `INEN`)
-# anywhere within ~30 chars of each other. Catches the cases where the
-# kerning gap gets crammed with spaces or newlines that exceed 12 chars.
-_KIN_NEAR_NUNEN_RE = re.compile(
-    r"KIN[\s\S]{0,30}(?:NUNEN|NINEN|UNEN|INEN|NUNEN)",
-    re.IGNORECASE,
-)
-# Prefix heuristic: real bylines always begin with "WRITTEN BY" or "BY".
-# When OCR fragments WRITTEN→WEN/VEN and TAPIO→TARIO/TAPO, the prefix
-# pattern still tells us a byline is present because the by `APIO` /
-# `ARIO` / `AP` slice is unique to this family of covers. Anchor loosely.
-_BY_APIO_RE = re.compile(
-    r"\b(?:WRITT?E?N?\b|WEN\b|VEN\b|VIN\b)[\s,./-]*(?:BY|BY\b|B\.|b\.)?[\s,./-]*"
-    r"(?:TAPIO|TAP I0|TAR I0|TAPO|TAR 10|TARIO|TAR10)\b",
+# The public surname is deliberately the strongest signal. Periods and
+# kerning can make Tesseract split ARVEN, so accept a modest punctuation or
+# whitespace gap between ARV and EN while still rejecting raw-art gibberish.
+_BYLINE_MARKERS = ("arven",)
+_ARVEN_SPLIT_RE = re.compile(r"\bARV[^A-Z0-9]{0,8}E[NM]\b", re.IGNORECASE)
+# The complete initialled byline is a second signal. OCR commonly drops the
+# periods in "T. K. ARVEN" but reliably keeps the initials and surname close.
+_TK_ARVEN_RE = re.compile(
+    r"\bT[^A-Z0-9]{0,5}K[^A-Z0-9]{0,12}ARV[^A-Z0-9]{0,8}E[NM]\b",
     re.IGNORECASE,
 )
 # One book (the-slowlight-accord) prints the byline stacked as
-# "TAPIO KINNUNEN" then "AUTHOR" on the next line. The author-line word
+# "T. K. ARVEN" then "AUTHOR" on the next line. The author-line word
 # `AUTHOR` is a strong second-signal when paired with any of the
 # `_BYLINE_MARKERS` in the same pass.
 _AUTHOR_RE = re.compile(r"\bAUTHOR\b")
@@ -131,7 +105,7 @@ def _ocr_cover(cover_path: Path) -> tuple[str, dict]:
     strips that contain the byline/title typography and OCR each strip
     in BOTH orientations (normal and inverted) at two PSMs (6 for uniform
     blocks, 7 for single lines). The strips are:
-      * byline band : y in [0.82, 0.92]    — where TAPIO KINNUNEN lives
+      * byline band : y in [0.82, 0.92]    — where T. K. ARVEN lives
       * title band  : y in [0.30, 0.52]    — where the title lives
 
     Both orientations are tried because bylines may be dark-on-light
@@ -152,7 +126,7 @@ def _ocr_cover(cover_path: Path) -> tuple[str, dict]:
         # Tesseract. Empirically a 3x scale (≈3072 px tall) is needed for
         # Tesseract --psm 3 auto-segmentation to reliably read
         # Liberation / DejaVu / Ubuntu bylines at our font sizes; lower
-        # scales miss TAPIO KINNUNEN on many of our covers.
+        # scales miss T. K. ARVEN on many of our covers.
         scale = max(1.0, 3000 / max(1, h))
         if scale != 1.0:
             im = im.resize(
@@ -160,7 +134,7 @@ def _ocr_cover(cover_path: Path) -> tuple[str, dict]:
         gray = im.convert("L")
         uh = gray.size[1]
         # Slightly wider byline band (0.78–0.94) than 0.82–0.92 so we
-        # include the "AUTHOR" caption below "TAPIO KINNUNEN" on
+        # include the "AUTHOR" caption below "T. K. ARVEN" on
         # the-slowlight-accord and the cream-byline variants used by
         # Liberation Serif Bold on dark art.
         crops = {
@@ -211,33 +185,14 @@ def _ocr_cover(cover_path: Path) -> tuple[str, dict]:
 def _looks_textless(cover_path: Path, use_ocr: bool = True) -> tuple[bool, dict]:
     """Return (is_textless, diagnostic_dict).
 
-    Strategy: pass when OCR finds EITHER
-      (a) the substring `kinnunen` or `tapio` anywhere in the OCR text,
-      (b) the split-byline regex `KIN.{0,3}NUNEN` (Tesseract sometimes
-          splits the surname across a kerning gap or band boundary), or
-      (c) the `AUTHOR` token paired with any of the `_BYLINE_MARKERS`
-          in the same pass (the-slowlight-accord uses this style).
+    Strategy: pass when OCR finds EITHER the surname `ARVEN`, its narrowly
+    fragmented `ARV ... EN` form, or the complete initialled byline pattern.
 
     AI art almost never produces these glyph sequences; they're
     unambiguous byline signals when present.
 
-    Why a fuzzy match is necessary
-    ------------------------------
-    Tesseract reliably reads TAPIO KINNUNEN as one token when the cover
-    is rendered with a Liberation-Sans/Liberation-Serif treatment, but
-    the typography we have currently in production has at least three
-    edge cases that defeat the strict substring match:
-      * the-anchors-wake and congruence-lattice render `KINNUNEN` with
-        a kerning gap that Tesseract reads as `KIN` then `NUNEN`.
-      * the-slowlight-accord is the only book whose make_cover prints
-        the byline stacked — `TAPIO KINNUNEN` on one line and
-        `AUTHOR` on the next.
-      * the-tithe-of-light and the-quiet-cartographers use Ubuntu
-        Regular rendered at a small size that produces `KINNUNEN` with
-        intermediate spaces.
-    The split regex `KIN[^A-Z]{0,3}NUNEN` plus the AUTHOR-token
-    fallback cover all observed cases without weakening real protection
-    (raw AI art never spuriously emits KIN+NUNEN+JUNK within 3 chars).
+    Fuzzy matching is intentionally surname-specific; `AUTHOR` by itself is
+    not accepted because it does not prove the requested public name appears.
     """
     diag: dict = {"path": str(cover_path)}
     if not cover_path.exists():
@@ -264,18 +219,13 @@ def _looks_textless(cover_path: Path, use_ocr: bool = True) -> tuple[bool, dict]
 
     text_lower = text.lower()
     byline_hits = [m for m in _BYLINE_MARKERS if m in text_lower]
-    split_match = bool(_KINNUNEN_SPLIT_RE.search(text))
-    near_match = bool(_KIN_NEAR_NUNEN_RE.search(text))
-    apio_match = bool(_BY_APIO_RE.search(text))
+    split_match = bool(_ARVEN_SPLIT_RE.search(text))
+    full_match = bool(_TK_ARVEN_RE.search(text))
     author_match = bool(_AUTHOR_RE.search(text))
-    has_byline = (
-        bool(byline_hits) or split_match or near_match or
-        apio_match or author_match
-    )
+    has_byline = bool(byline_hits) or split_match or full_match
     diag["byline_hits"] = byline_hits
-    diag["kinnunen_split"] = split_match
-    diag["kinnunen_near"] = near_match
-    diag["by_apio"] = apio_match
+    diag["arven_split"] = split_match
+    diag["tk_arven"] = full_match
     diag["author_token"] = author_match
     diag["allcaps_tokens"] = sorted(set(_ALL_CAPS_WORD_RE.findall(text)))
 

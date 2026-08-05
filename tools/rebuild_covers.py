@@ -46,7 +46,7 @@ def rebuild(slug: str, cfg: dict, archive: bool) -> None:
         "--title-font", cfg.get("title_font", "dejavu-serif"),
         "--title-y", str(cfg.get("title_y", 0.16)),
         "--kicker", cfg.get("kicker", "A SCIENCE FICTION NOVEL"),
-        "--byline", "TAPIO KINNUNEN",
+        "--byline", "T. K. ARVEN",
         "--byline-font", "dejavu-sans",
         "--byline-weight", "bold",
     ]
