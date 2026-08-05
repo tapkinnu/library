@@ -182,6 +182,22 @@ def _adult_content_from_status(text: str) -> bool:
     ))
 
 
+def _adult_source_slugs() -> set[str]:
+    """Return source-preserved projects that must never enter public output."""
+    slugs = set()
+    if not BOOKS_ROOT.exists():
+        return slugs
+    for source_dir in BOOKS_ROOT.iterdir():
+        if not source_dir.is_dir():
+            continue
+        status_path = source_dir / "status.yaml"
+        status_text = (status_path.read_text(encoding="utf-8")
+                       if status_path.exists() else "")
+        if _adult_content_from_status(status_text):
+            slugs.add(source_dir.name)
+    return slugs
+
+
 def _status_explicitly_incomplete(text: str) -> bool:
     """Block projects whose top-level ledger says unfinished or withdrawn."""
     incomplete = {"draft", "drafting", "in-progress", "in_progress", "repair", "production", "withdrawn"}
@@ -210,33 +226,6 @@ def _genre_from_status(text: str) -> str:
             or re.search(r"\bsf\b", labels)):
         return "science-fiction"
     return "science-fiction"
-
-
-def age_gate_markup() -> str:
-    """Reusable 18+ interstitial for adult sections and reader pages."""
-    return f"""<div class="age-gate" id="age-gate" role="dialog" aria-modal="true" aria-labelledby="age-gate-title">
-  <div class="age-gate-card">
-    <p class="age-gate-badge">18+</p>
-    <h1 id="age-gate-title">Adults only</h1>
-    <p>This section contains erotic illustrated fiction featuring consenting adult characters.</p>
-    <p>By continuing, you confirm that you are at least 18 years old and may legally view adult content where you live.</p>
-    <div class="age-gate-actions">
-      <button class="btn btn-primary" type="button" onclick="confirmAdultAccess()">I am 18 or older</button>
-      <a class="btn" href="{page_url('index.html')}">Return to the library</a>
-    </div>
-  </div>
-</div>
-<script>
-(function () {{
-  const gate = document.getElementById('age-gate');
-  if (!gate) return;
-  if (localStorage.getItem('tk-arven-adult-access') === 'confirmed') gate.hidden = true;
-  window.confirmAdultAccess = function () {{
-    localStorage.setItem('tk-arven-adult-access', 'confirmed');
-    gate.hidden = true;
-  }};
-}})();
-</script>"""
 
 
 def discover_books():
@@ -400,6 +389,11 @@ def discover_books():
             print(f"[skip-incomplete] {slug}: status ledger is not complete")
             continue
         is_adult = _adult_content_from_status(status_text)
+        if is_adult:
+            # Adult/erotic projects remain preserved in ~/Books, but the public
+            # library no longer publishes or links them in any form.
+            print(f"[skip-adult] {slug}: excluded from the public website")
+            continue
         genre = _genre_from_status(status_text)
         if not (cover and syn and mdfile):
             # Build a precise skip reason so future misnamings are loud, not silent.
@@ -631,7 +625,7 @@ def extract_blurb_from_lines(lines, title_idx) -> str:
 
 
 def heal_synopsis(syn_path: Path, *, title: str, author: str,
-                  wc: int, pages: int = 0, is_adult: bool = False) -> bool:
+                  wc: int, pages: int = 0) -> bool:
     """Canonicalize the public synopsis structure while preserving its blurb.
 
     Every published synopsis uses the same reader-facing order:
@@ -669,7 +663,7 @@ def heal_synopsis(syn_path: Path, *, title: str, author: str,
     # ledger still carries an older author field.
     byline = "**By T. K. Arven**"
     if pages > 0:
-        format_name = "Adults-only graphic novel" if is_adult else "Graphic novel"
+        format_name = "Graphic novel"
         length = f"{pages} pages"
     else:
         format_name = "Novelette" if wc < 17_500 else "Novella" if wc < 40_000 else "Novel"
@@ -734,7 +728,7 @@ def _book_author(b: dict) -> str:
 
 
 # --- page builders ----------------------------------------------------------
-def base_html(*, title, desc, body, extra_head="", nav="all", adult=False):
+def base_html(*, title, desc, body, extra_head="", nav="all"):
     t = html.escape(title)
     d = html.escape(desc)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -745,14 +739,12 @@ def base_html(*, title, desc, body, extra_head="", nav="all", adult=False):
         ("Novels", page_url("novels.html"), "novels"),
         ("Novellas", page_url("novellas.html"), "novellas"),
         ("Comics", page_url("comics.html"), "comics"),
-        ("After Dark · 18+", page_url("adult-comics.html"), "adult"),
     ]
     nav_html = '<nav class="site-nav" aria-label="Categories">'
     for label, href, key in nav_items:
         cls = "site-nav-link" + (" active" if key == nav else "")
         nav_html += f'<a class="{cls}" href="{href}">{label}</a>'
     nav_html += "</nav>"
-    gate = age_gate_markup() if adult else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -765,7 +757,6 @@ def base_html(*, title, desc, body, extra_head="", nav="all", adult=False):
 {extra_head}
 </head>
 <body>
-{gate}
 <header class="site-head">
   <div class="wrap site-head-inner">
     <a class="brand" href="{BASE}/">{SITE_TITLE}</a>
@@ -794,12 +785,9 @@ def card(b):
     blurb_html = md_to_html(syn["blurb"]) if syn["blurb"] else ""
     pdf_btn = (f'<a class="btn btn-sm" href="{pdf_url}">PDF</a>'
                if pdf_url else "")
-    adult_badge = ('<span class="adult-card-badge">18+</span>'
-                   if b.get("is_adult") else "")
-    return f"""<article class="card{' adult-card' if b.get('is_adult') else ''}">
+    return f"""<article class="card">
   <a class="card-cover-link" href="{book_url}">
     <img class="card-cover" src="{cover_url}" alt="Cover of {html.escape(syn['title'])}" loading="lazy">
-{adult_badge}
   </a>
   <div class="card-body">
     <p class="card-author">{html.escape(syn['author'])}</p>
@@ -813,7 +801,7 @@ def card(b):
 </article>"""
 
 
-def build_section(title, subtitle, books_list, nav, adult=False):
+def build_section(title, subtitle, books_list, nav):
     if not books_list:
         body = (f'<section class="hero"><h1>{html.escape(title)}</h1>'
                 f'<p class="lede">{html.escape(subtitle)}</p></section>\n'
@@ -824,13 +812,13 @@ def build_section(title, subtitle, books_list, nav, adult=False):
                 f'<p class="lede">{html.escape(subtitle)}</p></section>\n'
                 f'<section class="grid-section">\n<div class="grid">\n'
                 f'{grid}\n</div>\n</section>')
-    return base_html(title=title, desc=subtitle, body=body, nav=nav, adult=adult)
+    return base_html(title=title, desc=subtitle, body=body, nav=nav)
 
 
 def category_for_book(b):
-    """Return the canonical category page URL, label, and nav key."""
+    """Return the canonical public category page URL, label, and nav key."""
     if b.get("is_adult"):
-        return page_url("adult-comics.html"), "After Dark", "adult"
+        raise ValueError("adult projects are excluded from the public website")
     if b.get("is_comic"):
         return page_url("comics.html"), "Comics", "comics"
     if b.get("genre") == "fantasy":
@@ -878,9 +866,7 @@ def build_book(b):
         actions.append(f'<a class="btn" href="{pdf_url}">Download PDF</a>')
     back_url, back_label, section_nav = category_for_book(b)
     actions.append(f'<a class="btn btn-ghost" href="{back_url}">{back_label}</a>')
-    adult_note = ("""<aside class="adult-content-note"><strong>18+ adult content.</strong> This erotic comic features consenting adult characters.</aside>"""
-                  if b.get("is_adult") else "")
-    body = f"""{adult_note}<article class="book">
+    body = f"""<article class="book">
   <div class="book-hero">
     <img class="book-cover" src="{cover_url}" alt="Cover of {html.escape(syn['title'])}">
     <div class="book-meta">
@@ -892,8 +878,7 @@ def build_book(b):
   </div>
 </article>"""
     return base_html(title=syn["title"], desc=(syn["blurb"] or TAGLINE), body=body,
-                     nav=section_nav,
-                     adult=b.get("is_adult", False))
+                     nav=section_nav)
 
 
 def build_gallery(b):
@@ -922,7 +907,6 @@ def build_gallery(b):
 <link rel="stylesheet" href="{asset('style.css')}">
 </head>
 <body class="read-page">
-{age_gate_markup() if b.get('is_adult') else ''}
 {body}
 </body>
 </html>"""
@@ -960,7 +944,6 @@ def build_read(b, manuscript_html):
 <link rel="stylesheet" href="{asset('style.css')}">
 </head>
 <body class="read-page">
-{age_gate_markup() if b.get('is_adult') else ''}
 {body}
 </body>
 </html>"""
@@ -975,6 +958,7 @@ def main():
             shutil.copy(srcf, OUT / "assets" / f)
     (OUT / ".nojekyll").write_text("")
     books = discover_books()
+    adult_source_slugs = _adult_source_slugs()
 
     # Mandatory machine-vision cover gate. Every exact cover hash must have a
     # PASS receipt produced after inspection with Hermes' vision_analyze tool.
@@ -1004,6 +988,8 @@ def main():
     # show a stale count. This runs on EVERY generate, so editing a book and
     # re-running is enough to keep the synopsis honest.
     state = load_state()
+    for slug in adult_source_slugs:
+        state.pop(slug, None)
     for b in books:
         slug = b["slug"]
         prev = state.get(slug, {})
@@ -1026,7 +1012,6 @@ def main():
             author=_book_author(b),
             wc=b["wc"],
             pages=len(b["pages"]),
-            is_adult=b.get("is_adult", False),
         )
         if healed:
             print(f"[heal] {slug}: synopsis normalized (title/byline/blurb/Length)")
@@ -1056,7 +1041,6 @@ def main():
     novels_list = [b for b in parsed
                    if not b["is_comic"] and not b["is_novella"] and not b.get("is_adult")]
     novellas_list = [b for b in parsed if b["is_novella"] and not b.get("is_adult")]
-    adult_list = [b for b in parsed if b.get("is_adult")]
     (OUT / "fantasy.html").write_text(
         build_section(
             "Fantasy",
@@ -1092,15 +1076,14 @@ def main():
             "novellas",
         ),
         encoding="utf-8")
-    (OUT / "adult-comics.html").write_text(
-        build_section(
-            "After Dark",
-            "Adults-only erotic comics featuring consenting adult characters. 18+.",
-            adult_list,
-            "adult",
-            adult=True,
-        ),
-        encoding="utf-8")
+    # Prune the retired adults-only shelf and every previously generated adult
+    # book directory. Canonical source projects under ~/Books are untouched.
+    (OUT / "adult-comics.html").unlink(missing_ok=True)
+    for slug in adult_source_slugs:
+        shutil.rmtree(OUT / "books" / slug, ignore_errors=True)
+    if adult_source_slugs:
+        print("[prune-adult] removed public artifacts for: "
+              + ", ".join(sorted(adult_source_slugs)))
     for b in parsed:
         dest = OUT / "books" / b["slug"]
         dest.mkdir(parents=True, exist_ok=True)

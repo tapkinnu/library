@@ -72,6 +72,11 @@ def _status_explicitly_incomplete(text: str) -> bool:
     return any(value.strip().lower() in incomplete for value in values)
 
 
+def _adult_content_from_status(text: str) -> bool:
+    """Mirror generate.py: explicit adult projects are not public."""
+    return bool(re.search(r"(?im)^adult_content:\s*(?:true|yes|1|on)\s*$", text))
+
+
 # Whitelist matches: any of these substrings in the OCR text means the
 # byline is present. We use case- and punctuation-insensitive matching.
 #
@@ -240,8 +245,11 @@ def discover_publishable_books(root: Path) -> list[tuple[str, Path]]:
             continue
         slug = d.name
         status = d / "status.yaml"
-        if status.exists() and _status_explicitly_incomplete(status.read_text(encoding="utf-8")):
-            continue
+        if status.exists():
+            status_text = status.read_text(encoding="utf-8")
+            if (_status_explicitly_incomplete(status_text)
+                    or _adult_content_from_status(status_text)):
+                continue
         cover = d / "cover" / f"{slug}-cover.png"
         syn = d / "cover" / "synopsis.md"
         md = list((d / "manuscript").glob("*.md"))

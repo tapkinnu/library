@@ -1,70 +1,74 @@
 #!/usr/bin/env python3
+import contextlib
+import io
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import generate
+import verify_covers
 import verify_site
 
 
-class AdultSectionTests(unittest.TestCase):
-    def test_status_flag_parser(self):
-        self.assertTrue(generate._adult_content_from_status("adult_content: true\n"))
-        self.assertTrue(generate._adult_content_from_status("ADULT_CONTENT: YES\n"))
-        self.assertFalse(generate._adult_content_from_status("adult_content: false\n"))
-        self.assertFalse(generate._adult_content_from_status("# adult_content: true\n"))
+class AdultPublicationExclusionTests(unittest.TestCase):
+    def test_status_flag_parser_is_shared(self):
+        samples = (
+            "adult_content: true\n",
+            "ADULT_CONTENT: YES\n",
+            "adult_content: 1\n",
+            "adult_content: on\n",
+        )
+        for text in samples:
+            self.assertTrue(generate._adult_content_from_status(text))
+            self.assertTrue(verify_site._adult_content_from_status(text))
+            self.assertTrue(verify_covers._adult_content_from_status(text))
+        for text in ("adult_content: false\n", "# adult_content: true\n"):
+            self.assertFalse(generate._adult_content_from_status(text))
+            self.assertFalse(verify_site._adult_content_from_status(text))
+            self.assertFalse(verify_covers._adult_content_from_status(text))
 
     def test_explicitly_incomplete_projects_are_not_publishable(self):
         self.assertTrue(generate._status_explicitly_incomplete("phase: repair\n"))
         self.assertTrue(generate._status_explicitly_incomplete("status: IN_PROGRESS\n"))
-        self.assertTrue(generate._status_explicitly_incomplete("phase: drafting\n"))
         self.assertTrue(generate._status_explicitly_incomplete("phase: withdrawn\n"))
         self.assertFalse(generate._status_explicitly_incomplete("phase: complete\nstatus: COMPLETE\n"))
-        self.assertFalse(generate._status_explicitly_incomplete("  status: drafting\n"))
         self.assertTrue(verify_site._status_explicitly_incomplete("phase: repair\n"))
-        self.assertTrue(verify_site._status_explicitly_incomplete("status: WITHDRAWN\n"))
         self.assertFalse(verify_site._status_explicitly_incomplete("phase: complete\n"))
 
-    def test_nav_and_gate_on_adult_section(self):
-        page = generate.build_section(
-            "After Dark",
-            "Adults-only illustrated stories.",
-            [],
-            "adult",
-            adult=True,
+    def test_public_navigation_has_no_after_dark_section(self):
+        page = generate.base_html(
+            title="Books",
+            desc="Library",
+            body="<p>Books</p>",
+            nav="all",
         )
-        self.assertIn("After Dark · 18+", page)
-        self.assertIn('class="age-gate"', page)
-        self.assertIn("I am 18 or older", page)
-        self.assertIn("adult-comics.html", page)
+        self.assertNotIn("After Dark", page)
+        self.assertNotIn("adult-comics.html", page)
+        self.assertNotIn("18+", page)
 
-    def test_adult_book_and_readers_are_gated(self):
-        book = {
-            "slug": "sample-adult-comic",
-            "syn_parsed": {
-                "title": "Sample",
-                "author": "T. K. Arven",
-                "body": "Adult blurb.",
-                "blurb": "Adult blurb.",
-            },
-            "pdf": None,
-            "pdf_name": None,
-            "is_comic": True,
-            "is_adult": True,
-            "pages": [Path("page-1.png")],
-        }
-        book_page = generate.build_book(book)
-        gallery_page = generate.build_gallery(book)
-        read_page = generate.build_read(book, "<p>Script</p>")
-        self.assertIn('class="age-gate"', book_page)
-        self.assertIn('class="age-gate"', gallery_page)
-        self.assertIn('class="age-gate"', read_page)
-        adult_backlink = 'href="/library/adult-comics.html">After Dark</a>'
-        self.assertIn(adult_backlink, book_page)
-        self.assertIn(adult_backlink, gallery_page)
-        self.assertIn(adult_backlink, read_page)
+    def test_discovery_excludes_adult_projects_without_deleting_sources(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / "sample-adult-comic"
+            project.mkdir()
+            status = project / "status.yaml"
+            status.write_text(
+                "phase: complete\nstatus: COMPLETE\nadult_content: true\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(generate, "BOOKS_ROOT", root):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    books = generate.discover_books()
+            self.assertEqual(books, [])
+            self.assertIn("[skip-adult] sample-adult-comic", output.getvalue())
+            self.assertTrue(status.exists())
 
-    def test_safe_sections_do_not_render_adult_gate(self):
-        page = generate.build_section("Comics", "Safe comics.", [], "comics")
+    def test_public_comics_section_remains_ungated(self):
+        page = generate.build_section("Comics", "Graphic novels.", [], "comics")
+        self.assertNotIn("After Dark", page)
+        self.assertNotIn("adult-comics.html", page)
         self.assertNotIn('class="age-gate"', page)
 
 

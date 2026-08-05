@@ -144,28 +144,3 @@ a:hover{text-decoration:underline;}
 .comic-page img{width:100%;display:block;}
 .comic-page figcaption{font-family:var(--sans);font-size:.8rem;color:#AEB6C9;
   text-align:center;padding:8px 0;background:var(--navy-deep);}
-
-/* segregated adults-only section */
-.adult-card{border-color:#B24878;box-shadow:0 0 0 1px rgba(178,72,120,.10);}
-.adult-card-badge{position:absolute;top:12px;right:12px;z-index:2;
-  display:inline-flex;align-items:center;justify-content:center;min-width:48px;
-  padding:6px 10px;border-radius:999px;background:#B24878;color:#fff;
-  font-family:var(--sans);font-size:.82rem;font-weight:800;letter-spacing:.05em;
-  box-shadow:0 3px 12px rgba(20,10,30,.35);}
-.adult-content-note{margin:34px 0 0;padding:15px 18px;border-radius:10px;
-  border:1px solid #B24878;background:#F8E8EF;color:#59223C;
-  font-family:var(--sans);font-size:.94rem;}
-.age-gate{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;
-  padding:24px;background:rgba(12,7,20,.94);backdrop-filter:blur(12px);}
-.age-gate[hidden]{display:none;}
-.age-gate-card{width:min(560px,100%);padding:34px;border-radius:18px;
-  border:1px solid rgba(238,126,176,.65);background:#211027;color:#F8EADB;
-  box-shadow:0 24px 80px rgba(0,0,0,.55);text-align:center;}
-.age-gate-card h1{margin:.25em 0;color:#fff;font-size:2rem;}
-.age-gate-card p{font-family:var(--sans);color:#DDD0DA;line-height:1.55;}
-.age-gate-badge{display:inline-flex;align-items:center;justify-content:center;
-  min-width:82px;margin:0;padding:10px 18px;border-radius:999px;
-  background:#EE7EB0;color:#211027!important;font-size:1.25rem!important;font-weight:900;}
-.age-gate-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:24px;}
-.age-gate-actions .btn{background:#F8EADB;}
-.age-gate-actions .btn-primary{background:#C25587;border-color:#C25587;color:#fff;}

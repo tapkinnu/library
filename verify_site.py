@@ -119,12 +119,17 @@ def main():
     expected_novellas = set()
     expected_fantasy = set()
     expected_science_fiction = set()
+    adult_slugs = set()
     books = sorted(p for p in BOOKS_ROOT.iterdir() if p.is_dir())
     checked = 0
     for d in books:
         slug = d.name
         status = d / "status.yaml"
         status_text = status.read_text(encoding="utf-8") if status.exists() else ""
+        is_adult = _adult_content_from_status(status_text)
+        if is_adult:
+            adult_slugs.add(slug)
+            continue
         if _status_explicitly_incomplete(status_text):
             continue
         cover = (list(d.glob("cover/*-cover.png")) or [d / "x"])[0]
@@ -134,14 +139,12 @@ def main():
             continue  # not a publishable book; skipped by generate.py too
         checked += 1
         is_comic = any((d / "pages").glob("page-*.png"))
-        is_adult = _adult_content_from_status(status_text)
         genre = _genre_from_status(status_text)
-        if not is_adult:
-            if genre == "fantasy":
-                expected_fantasy.add(slug)
-            else:
-                expected_science_fiction.add(slug)
-        if not is_comic and not is_adult:
+        if genre == "fantasy":
+            expected_fantasy.add(slug)
+        else:
+            expected_science_fiction.add(slug)
+        if not is_comic:
             canonical_md = d / "manuscript" / f"{slug}.md"
             md_path = canonical_md if canonical_md.exists() else md[0]
             prose_words = len(md_path.read_text(encoding="utf-8").split())
@@ -177,8 +180,7 @@ def main():
             continue
         allowed_formats = {
             "**Format:** Novel", "**Format:** Novella", "**Format:** Novelette",
-            "**Format:** Graphic novel", "**Format:** Adults-only graphic novel",
-            "**Format:** Adults-only comic",
+            "**Format:** Graphic novel",
         }
         if format_lines[0] not in allowed_formats:
             failures.append(f"{slug}: nonstandard Format value: {format_lines[0]!r}")
@@ -247,6 +249,20 @@ def main():
             "Fantasy/Science Fiction overlap: "
             f"{sorted(actual_fantasy & actual_science_fiction)}"
         )
+
+    # Adult/erotic projects are source-preserved but must have no public shelf,
+    # generated reader, downloadable artifact, or navigation target.
+    adult_page = SITE_DOCS / "adult-comics.html"
+    if adult_page.exists():
+        failures.append("retired adult-comics.html is still present")
+    for slug in sorted(adult_slugs):
+        stale_dir = SITE_DOCS / "books" / slug
+        if stale_dir.exists():
+            failures.append(f"{slug}: retired adult public artifacts still present")
+    for public_page in SITE_DOCS.glob("*.html"):
+        text = public_page.read_text(encoding="utf-8")
+        if "adult-comics.html" in text or "After Dark" in text:
+            failures.append(f"{public_page.name}: retired adult navigation/content remains")
 
     print(
         f"Checked {checked} publishable book(s): "
