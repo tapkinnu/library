@@ -6,7 +6,7 @@ import verify_site
 
 
 class GenreSectionTests(unittest.TestCase):
-    def test_genre_parser_recognizes_fantasy_and_science_fiction(self):
+    def test_genre_parser_recognizes_fantasy_science_fiction_and_nonfiction(self):
         fantasy_status = "category: adult dark folkloric fantasy\nstatus: COMPLETE\n"
         science_fiction_statuses = [
             "genre: science fiction\n",
@@ -16,6 +16,9 @@ class GenreSectionTests(unittest.TestCase):
         ]
         self.assertEqual(generate._genre_from_status(fantasy_status), "fantasy")
         self.assertEqual(verify_site._genre_from_status(fantasy_status), "fantasy")
+        nonfiction_status = "category: practical nonfiction / financial compliance guide\n"
+        self.assertEqual(generate._genre_from_status(nonfiction_status), "nonfiction")
+        self.assertEqual(verify_site._genre_from_status(nonfiction_status), "nonfiction")
         for status in science_fiction_statuses:
             with self.subTest(status=status):
                 self.assertEqual(generate._genre_from_status(status), "science-fiction")
@@ -34,6 +37,7 @@ class GenreSectionTests(unittest.TestCase):
         page = generate.build_section("Fantasy", "Magic and myth.", [], "fantasy")
         self.assertIn('href="/library/fantasy.html"', page)
         self.assertIn('href="/library/science-fiction.html"', page)
+        self.assertIn('href="/library/nonfiction.html"', page)
         self.assertIn('class="site-nav-link active" href="/library/fantasy.html"', page)
 
     def test_prose_book_backlink_uses_genre_category(self):
@@ -42,6 +46,10 @@ class GenreSectionTests(unittest.TestCase):
             "genre": "science-fiction", "is_comic": False,
             "is_adult": False, "is_novella": True,
         }
+        nonfiction = {
+            "genre": "nonfiction", "is_comic": False,
+            "is_adult": False, "is_novella": False,
+        }
         self.assertEqual(
             generate.category_for_book(fantasy),
             ("/library/fantasy.html", "Fantasy", "fantasy"),
@@ -49,6 +57,10 @@ class GenreSectionTests(unittest.TestCase):
         self.assertEqual(
             generate.category_for_book(science_fiction),
             ("/library/science-fiction.html", "Science Fiction", "science-fiction"),
+        )
+        self.assertEqual(
+            generate.category_for_book(nonfiction),
+            ("/library/nonfiction.html", "Nonfiction", "nonfiction"),
         )
 
 

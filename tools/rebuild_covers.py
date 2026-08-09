@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,16 @@ HERE = Path(__file__).resolve().parent
 ENGINE = HERE / "pro_cover.py"
 MANIFEST = HERE / "cover_manifest.json"
 BOOKS = Path.home() / "Books"
+
+
+def resolved_byline(slug: str) -> str:
+    status = BOOKS / slug / "status.yaml"
+    text = status.read_text(encoding="utf-8") if status.exists() else ""
+    match = re.search(r"(?im)^(?:author|byline):\s*['\"]?([^'\"\n#]+)", text)
+    if match:
+        return match.group(1).strip().upper()
+    fields = " ".join(re.findall(r"(?im)^(?:genre|category|genre_epoch):\s*([^\n]+)", text))
+    return "E. R. VEYLAN" if re.search(r"\bfantasy\b", fields, re.I) else "T. K. ARVEN"
 
 
 def load_manifest():
@@ -46,7 +57,7 @@ def rebuild(slug: str, cfg: dict, archive: bool) -> None:
         "--title-font", cfg.get("title_font", "dejavu-serif"),
         "--title-y", str(cfg.get("title_y", 0.16)),
         "--kicker", cfg.get("kicker", "A SCIENCE FICTION NOVEL"),
-        "--byline", "T. K. ARVEN",
+        "--byline", resolved_byline(slug),
         "--byline-font", "dejavu-sans",
         "--byline-weight", "bold",
     ]

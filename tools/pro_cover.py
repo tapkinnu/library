@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Professional portrait-cover typesetter for the T. K. Arven library.
+"""Professional portrait-cover typesetter for the multi-author library.
 
 The AI artwork must be text-free. This tool adds crisp, reproducible typography,
 a restrained title field, and a strong lower fade that suppresses accidental
@@ -137,7 +137,7 @@ def main() -> None:
     ap.add_argument("--art", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--title", required=True)
-    ap.add_argument("--byline", default="T. K. ARVEN")
+    ap.add_argument("--byline", required=True, help="resolved per-book byline; never inferred")
     ap.add_argument("--kicker", default="A SCIENCE FICTION NOVEL")
     ap.add_argument("--title-y", type=float, default=0.16,
                     help="top of title block as a fraction of cover height")

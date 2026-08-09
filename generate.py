@@ -153,6 +153,8 @@ BOOKS_ROOT = Path(os.environ.get("BOOKS_DIR", Path.home() / "Books")).expanduser
 OUT = ROOT / "docs"
 SRC = ROOT / "src"
 
+SCIENCE_FICTION_AUTHOR = "T. K. Arven"
+FANTASY_AUTHOR = "E. R. Veylan"
 SITE_TITLE = "The Library of T. K. Arven"
 TAGLINE = "Fantasy and science fiction from the Hermes writer agent."
 # SFWA's conventional lower bound for a novel is 40,000 words. Shorter
@@ -210,7 +212,8 @@ def _genre_from_status(text: str) -> str:
 
     The historical library predates consistent genre fields and consisted of
     science fiction, so an unlabelled legacy book defaults to science fiction.
-    New fantasy projects carry an explicit ``category: ... fantasy`` field.
+    New fantasy and nonfiction projects carry explicit top-level category or
+    genre fields; unlabelled legacy books still default to science fiction.
     Only top-level genre/category lines are considered so unrelated ledger
     fields such as ``last_fantasy_subgenre`` cannot misclassify a book.
     """
@@ -218,6 +221,8 @@ def _genre_from_status(text: str) -> str:
         r"(?im)^(?:genre|category):\s*[\"']?([^\n\"']+)", text
     )
     labels = " ".join(values).lower()
+    if "nonfiction" in labels or "non-fiction" in labels:
+        return "nonfiction"
     if "fantasy" in labels:
         return "fantasy"
     if (re.search(r"\bscience[ -]?fiction\b", labels)
@@ -625,7 +630,8 @@ def extract_blurb_from_lines(lines, title_idx) -> str:
 
 
 def heal_synopsis(syn_path: Path, *, title: str, author: str,
-                  wc: int, pages: int = 0) -> bool:
+                  wc: int, pages: int = 0,
+                  genre: str = "science-fiction") -> bool:
     """Canonicalize the public synopsis structure while preserving its blurb.
 
     Every published synopsis uses the same reader-facing order:
@@ -659,12 +665,14 @@ def heal_synopsis(syn_path: Path, *, title: str, author: str,
     if not blurb:
         blurb = "Synopsis forthcoming."
 
-    # The public house byline is intentionally fixed even when a stale project
-    # ledger still carries an older author field.
-    byline = "**By T. K. Arven**"
+    # The caller resolves the authoritative per-genre byline from project state.
+    byline = f"**By {author}**"
     if pages > 0:
         format_name = "Graphic novel"
         length = f"{pages} pages"
+    elif genre == "nonfiction":
+        format_name = "Practical nonfiction"
+        length = f"{wc:,} words"
     else:
         format_name = "Novelette" if wc < 17_500 else "Novella" if wc < 40_000 else "Novel"
         length = f"{wc:,} words"
@@ -712,19 +720,19 @@ def _book_title(b: dict) -> str:
 
 
 def _book_author(b: dict) -> str:
-    """Read the book author from status.yaml (preferred) or fall back
-    to the site default."""
+    """Read the explicit author/byline, then apply the genre pen-name policy."""
     status = b["md"].parent.parent / "status.yaml"
     if status.exists():
         try:
             txt = status.read_text(encoding="utf-8")
             for ln in txt.splitlines():
-                stripped = ln.strip()
-                if stripped.startswith("author:"):
-                    return stripped.split(":", 1)[1].strip().strip('"').strip("'")
+                if ln.startswith("author:") or ln.startswith("byline:"):
+                    return ln.split(":", 1)[1].strip().strip('"').strip("'")
+            if _genre_from_status(txt) == "fantasy":
+                return FANTASY_AUTHOR
         except Exception:
             pass
-    return "T. K. Arven"
+    return SCIENCE_FICTION_AUTHOR
 
 
 # --- page builders ----------------------------------------------------------
@@ -736,6 +744,7 @@ def base_html(*, title, desc, body, extra_head="", nav="all"):
         ("All", page_url("index.html"), "all"),
         ("Fantasy", page_url("fantasy.html"), "fantasy"),
         ("Sci-Fi", page_url("science-fiction.html"), "science-fiction"),
+        ("Nonfiction", page_url("nonfiction.html"), "nonfiction"),
         ("Novels", page_url("novels.html"), "novels"),
         ("Novellas", page_url("novellas.html"), "novellas"),
         ("Comics", page_url("comics.html"), "comics"),
@@ -823,22 +832,24 @@ def category_for_book(b):
         return page_url("comics.html"), "Comics", "comics"
     if b.get("genre") == "fantasy":
         return page_url("fantasy.html"), "Fantasy", "fantasy"
+    if b.get("genre") == "nonfiction":
+        return page_url("nonfiction.html"), "Nonfiction", "nonfiction"
     return page_url("science-fiction.html"), "Science Fiction", "science-fiction"
 
 
 def build_home(books):
     if not books:
         return base_html(title="Books", desc=TAGLINE,
-                         body='<section class="hero"><h1>Books by T. K. Arven</h1>'
-                              '<p class="lede">Fantasy and science fiction, set down by '
+                         body='<section class="hero"><h1>Books by T. K. Arven and E. R. Veylan</h1>'
+                              '<p class="lede">Fantasy, science fiction, and practical nonfiction, set down by '
                               'the Hermes writer agent.</p></section>\n'
                               '<p class="empty">No books published yet.</p>')
 
     # Single unified grid: all books (comics + novels) sorted newest first
     grid = "\n".join(card(b) for b in books)
     body = f"""<section class="hero">
-  <h1>Books by T. K. Arven</h1>
-  <p class="lede">Fantasy and science fiction, set down by the Hermes writer agent. Read online or download the PDF.</p>
+  <h1>Books by T. K. Arven and E. R. Veylan</h1>
+  <p class="lede">Fantasy, science fiction, and practical nonfiction, set down by the Hermes writer agent. Read online or download the PDF.</p>
 </section>
 <section class="grid-section">
 <div class="grid">
@@ -1012,6 +1023,7 @@ def main():
             author=_book_author(b),
             wc=b["wc"],
             pages=len(b["pages"]),
+            genre=b["genre"],
         )
         if healed:
             print(f"[heal] {slug}: synopsis normalized (title/byline/blurb/Length)")
@@ -1038,9 +1050,13 @@ def main():
                     if b["genre"] == "fantasy" and not b.get("is_adult")]
     science_fiction_list = [b for b in parsed
                             if b["genre"] == "science-fiction" and not b.get("is_adult")]
+    nonfiction_list = [b for b in parsed
+                       if b["genre"] == "nonfiction" and not b.get("is_adult")]
     novels_list = [b for b in parsed
-                   if not b["is_comic"] and not b["is_novella"] and not b.get("is_adult")]
-    novellas_list = [b for b in parsed if b["is_novella"] and not b.get("is_adult")]
+                   if not b["is_comic"] and not b["is_novella"]
+                   and b["genre"] != "nonfiction" and not b.get("is_adult")]
+    novellas_list = [b for b in parsed if b["is_novella"]
+                     and b["genre"] != "nonfiction" and not b.get("is_adult")]
     (OUT / "fantasy.html").write_text(
         build_section(
             "Fantasy",
@@ -1055,6 +1071,14 @@ def main():
             "Reasoned science fiction about distant worlds, altered societies, and difficult futures.",
             science_fiction_list,
             "science-fiction",
+        ),
+        encoding="utf-8")
+    (OUT / "nonfiction.html").write_text(
+        build_section(
+            "Nonfiction",
+            "Practical, researched guides for complex real-world decisions.",
+            nonfiction_list,
+            "nonfiction",
         ),
         encoding="utf-8")
     (OUT / "comics.html").write_text(

@@ -77,6 +77,17 @@ def _adult_content_from_status(text: str) -> bool:
     return bool(re.search(r"(?im)^adult_content:\s*(?:true|yes|1|on)\s*$", text))
 
 
+def _expected_author_for_cover(cover_path: Path) -> str:
+    """Resolve the required byline from the book's top-level genre metadata."""
+    status = cover_path.parent.parent / "status.yaml"
+    text = status.read_text(encoding="utf-8", errors="ignore") if status.exists() else ""
+    explicit = re.search(r"(?im)^(?:author|byline):\s*[\"']?([^\n\"']+)", text)
+    if explicit:
+        return explicit.group(1).strip()
+    fields = " ".join(re.findall(r"(?im)^(?:genre|category|genre_epoch):\s*([^\n]+)", text))
+    return "E. R. Veylan" if re.search(r"\bfantasy\b", fields, re.I) else "T. K. Arven"
+
+
 # Whitelist matches: any of these substrings in the OCR text means the
 # byline is present. We use case- and punctuation-insensitive matching.
 #
@@ -222,15 +233,23 @@ def _looks_textless(cover_path: Path, use_ocr: bool = True) -> tuple[bool, dict]
     diag.update(ocr_diag)
     diag["ocr_text_preview"] = text[:160].replace("\n", " | ")
 
-    text_lower = text.lower()
-    byline_hits = [m for m in _BYLINE_MARKERS if m in text_lower]
-    split_match = bool(_ARVEN_SPLIT_RE.search(text))
-    full_match = bool(_TK_ARVEN_RE.search(text))
+    expected_author = _expected_author_for_cover(cover_path)
+    expected_surname = expected_author.split()[-1].upper()
+    normalized_ocr = re.sub(r"[^A-Z0-9]", "", text.upper())
+    byline_hits = [expected_surname.lower()] if expected_surname in normalized_ocr else []
+    split_match = bool(_ARVEN_SPLIT_RE.search(text)) if expected_surname == "ARVEN" else bool(
+        re.search(r"\bVEY[^A-Z0-9]{0,8}LA[NM]\b", text, re.IGNORECASE)
+    )
+    full_match = bool(_TK_ARVEN_RE.search(text)) if expected_surname == "ARVEN" else bool(
+        re.search(r"\bE[^A-Z0-9]{0,5}R[^A-Z0-9]{0,12}VEY[^A-Z0-9]{0,8}LA[NM]\b", text, re.IGNORECASE)
+    )
     author_match = bool(_AUTHOR_RE.search(text))
     has_byline = bool(byline_hits) or split_match or full_match
+    diag["expected_author"] = expected_author
+    diag["expected_surname"] = expected_surname
     diag["byline_hits"] = byline_hits
-    diag["arven_split"] = split_match
-    diag["tk_arven"] = full_match
+    diag["surname_split"] = split_match
+    diag["full_initialled_byline"] = full_match
     diag["author_token"] = author_match
     diag["allcaps_tokens"] = sorted(set(_ALL_CAPS_WORD_RE.findall(text)))
 

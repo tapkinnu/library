@@ -14,8 +14,9 @@ This guarantees three durable rules:
   1. Every published book ships a downloadable PDF.
   2. Every home-card synopsis blurb is a real narrative, not bare metadata,
      so the library reads consistently no matter how a synopsis file is shaped.
-  3. Every synopsis uses the house presentation: one title, the T. K. Arven
-     byline, a professional-length blurb, then Format and Length metadata.
+  3. Every synopsis uses the house presentation: one title, the project's
+     explicit author/byline, a professional-length blurb, then Format and
+     Length metadata.
 """
 import re
 import sys
@@ -51,6 +52,8 @@ def _genre_from_status(text: str) -> str:
         r"(?im)^(?:genre|category):\s*[\"']?([^\n\"']+)", text
     )
     labels = " ".join(values).lower()
+    if "nonfiction" in labels or "non-fiction" in labels:
+        return "nonfiction"
     if "fantasy" in labels:
         return "fantasy"
     if (re.search(r"\bscience[ -]?fiction\b", labels)
@@ -59,6 +62,14 @@ def _genre_from_status(text: str) -> str:
             or re.search(r"\bsf\b", labels)):
         return "science-fiction"
     return "science-fiction"
+
+
+def _author_from_status(text: str, genre: str) -> str:
+    """Use an explicit book author/byline; otherwise apply catalog defaults."""
+    explicit = re.search(r"(?im)^(?:author|byline):\s*[\"']?([^\n\"']+)", text)
+    if explicit:
+        return explicit.group(1).strip()
+    return "E. R. Veylan" if genre == "fantasy" else "T. K. Arven"
 
 
 def _linked_slugs(page: Path) -> set[str]:
@@ -119,6 +130,7 @@ def main():
     expected_novellas = set()
     expected_fantasy = set()
     expected_science_fiction = set()
+    expected_nonfiction = set()
     adult_slugs = set()
     books = sorted(p for p in BOOKS_ROOT.iterdir() if p.is_dir())
     checked = 0
@@ -142,9 +154,11 @@ def main():
         genre = _genre_from_status(status_text)
         if genre == "fantasy":
             expected_fantasy.add(slug)
+        elif genre == "nonfiction":
+            expected_nonfiction.add(slug)
         else:
             expected_science_fiction.add(slug)
-        if not is_comic:
+        if not is_comic and genre != "nonfiction":
             canonical_md = d / "manuscript" / f"{slug}.md"
             md_path = canonical_md if canonical_md.exists() else md[0]
             prose_words = len(md_path.read_text(encoding="utf-8").split())
@@ -167,8 +181,10 @@ def main():
         if re.search(r"\bsynopsis\b", h1[0], re.I):
             failures.append(f"{slug}: public title must not include the word 'Synopsis'")
             continue
-        if nonblank.count("**By T. K. Arven**") != 1:
-            failures.append(f"{slug}: synopsis must contain exactly one '**By T. K. Arven**' byline")
+        expected_author = _author_from_status(status_text, genre)
+        expected_byline = f"**By {expected_author}**"
+        if nonblank.count(expected_byline) != 1:
+            failures.append(f"{slug}: synopsis must contain exactly one {expected_byline!r} byline")
             continue
         format_lines = [ln for ln in nonblank if ln.startswith("**Format:**")]
         length_lines = [ln for ln in nonblank if ln.startswith("**Length:**")]
@@ -180,7 +196,7 @@ def main():
             continue
         allowed_formats = {
             "**Format:** Novel", "**Format:** Novella", "**Format:** Novelette",
-            "**Format:** Graphic novel",
+            "**Format:** Graphic novel", "**Format:** Practical nonfiction",
         }
         if format_lines[0] not in allowed_formats:
             failures.append(f"{slug}: nonstandard Format value: {format_lines[0]!r}")
@@ -232,6 +248,7 @@ def main():
     # (5) Genre pages must partition all public books, independent of format.
     actual_fantasy = _linked_slugs(SITE_DOCS / "fantasy.html")
     actual_science_fiction = _linked_slugs(SITE_DOCS / "science-fiction.html")
+    actual_nonfiction = _linked_slugs(SITE_DOCS / "nonfiction.html")
     if actual_fantasy != expected_fantasy:
         failures.append(
             "fantasy.html membership mismatch: "
@@ -244,10 +261,18 @@ def main():
             f"missing={sorted(expected_science_fiction - actual_science_fiction)}, "
             f"unexpected={sorted(actual_science_fiction - expected_science_fiction)}"
         )
-    if actual_fantasy & actual_science_fiction:
+    if actual_nonfiction != expected_nonfiction:
         failures.append(
-            "Fantasy/Science Fiction overlap: "
-            f"{sorted(actual_fantasy & actual_science_fiction)}"
+            "nonfiction.html membership mismatch: "
+            f"missing={sorted(expected_nonfiction - actual_nonfiction)}, "
+            f"unexpected={sorted(actual_nonfiction - expected_nonfiction)}"
+        )
+    genre_overlap = ((actual_fantasy & actual_science_fiction)
+                     | (actual_fantasy & actual_nonfiction)
+                     | (actual_science_fiction & actual_nonfiction))
+    if genre_overlap:
+        failures.append(
+            "Genre-page overlap: " + str(sorted(genre_overlap))
         )
 
     # Adult/erotic projects are source-preserved but must have no public shelf,
@@ -267,7 +292,8 @@ def main():
     print(
         f"Checked {checked} publishable book(s): "
         f"{len(expected_novels)} full novels, {len(expected_novellas)} shorter prose works; "
-        f"{len(expected_fantasy)} fantasy and {len(expected_science_fiction)} science-fiction titles."
+        f"{len(expected_fantasy)} fantasy, {len(expected_science_fiction)} science-fiction, "
+        f"and {len(expected_nonfiction)} nonfiction titles."
     )
     if failures:
         print("RESULT: FAIL")
